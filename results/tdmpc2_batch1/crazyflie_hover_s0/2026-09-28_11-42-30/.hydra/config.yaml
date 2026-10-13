@@ -1,0 +1,51 @@
+seed: 0
+max_steps: 50000
+buffer_size: 50000
+seed_steps: 500
+seed_updates: 100
+save_interval_steps: 2000
+log_interval_steps: 500
+evaluate_episodes: 3
+evaluation_length: 500
+env:
+  backend: gymnasium
+  env_id: CrazyflieHover-v0
+  num_envs: 1
+  utd_ratio: 1.0
+  asynchronous: false
+encoder:
+  encoder_dim: 128
+  num_encoder_layers: 2
+  learning_rate: 0.0001
+  tabulate: false
+world_model:
+  latent_dim: 128
+  value_dropout: 0.01
+  num_value_nets: 5
+  num_bins: 101
+  symlog_min: -10
+  symlog_max: 10
+  simnorm_dim: 8
+  learning_rate: 0.0003
+  predict_continues: false
+  dtype: float32
+  max_grad_norm: 20
+  tabulate: false
+tdmpc2:
+  horizon: 3
+  mppi_iterations: 3
+  population_size: 128
+  policy_prior_samples: 16
+  num_elites: 16
+  min_plan_std: 0.05
+  max_plan_std: 2
+  temperature: 1.0
+  batch_size: 64
+  discount: 0.99
+  rho: 0.5
+  consistency_loss_scale: 20
+  reward_loss_scale: 0.1
+  value_loss_scale: 0.1
+  continue_loss_scale: 0.0
+  entropy_coef: 0.0001
+  tau: 0.01

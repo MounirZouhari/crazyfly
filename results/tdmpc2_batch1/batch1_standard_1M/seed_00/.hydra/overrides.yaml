@@ -1,0 +1,4 @@
+- seed=0
+- max_steps=1000000
+- buffer_size=1000000
+- save_interval_steps=50000

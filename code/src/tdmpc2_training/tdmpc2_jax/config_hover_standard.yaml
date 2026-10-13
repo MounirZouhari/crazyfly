@@ -1,0 +1,26 @@
+# Same task, training budget and test flights as config_hover.yaml, but with
+# the network sizes and planning budget of the published TD-MPC2 defaults
+# (github.com/nicklashansen/tdmpc2, config.yaml). Only the values below differ.
+#
+#   train_hover.py --config-name=config_hover_standard
+defaults:
+  - config_hover
+  - _self_
+
+seed_steps: 2_500     # official: max(1000, 5 x episode length)
+seed_updates: 2_500   # official: one update per seed step
+
+encoder:
+  encoder_dim: 256
+  learning_rate: 9e-5   # official: lr 3e-4 x enc_lr_scale 0.3
+
+world_model:
+  latent_dim: 512     # this implementation also uses it as the hidden width
+
+tdmpc2:
+  mppi_iterations: 6
+  population_size: 512
+  policy_prior_samples: 24
+  num_elites: 64
+  temperature: 0.5
+  batch_size: 256

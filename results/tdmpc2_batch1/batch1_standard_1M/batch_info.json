@@ -1,0 +1,2 @@
+{"steps": 1000000, "overrides": ["--config-name=config_hover_standard", "buffer_size=1000000", "save_interval_steps=50000"],
+ "launches": [{"commit": "62b44e2fc449af760449ef88d14714efae67080f", "uncommitted_changes": true, "cluster": "narval"}]}

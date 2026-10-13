@@ -1,0 +1,2 @@
+{"steps": 60000000, "overrides": ["PPO (gpu_training/ppo_training.py defaults, episode_length=500)"],
+ "launches": [{"commit": "62b44e2fc449af760449ef88d14714efae67080f", "uncommitted_changes": true, "cluster": "narval"}]}

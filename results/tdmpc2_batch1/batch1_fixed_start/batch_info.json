@@ -1,0 +1,25 @@
+{
+  "launches": [
+    {
+      "time": "2026-10-12T17:28:57",
+      "parallel": 2,
+      "commit": "62b44e2fc449af760449ef88d14714efae67080f",
+      "uncommitted_changes": true
+    }
+  ],
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10
+  ],
+  "steps": 50000,
+  "overrides": []
+}
