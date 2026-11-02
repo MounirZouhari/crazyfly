@@ -1,0 +1,20 @@
+# Batch 2, control C1: identical to config_batch2_random_start except that
+# every training flight starts from the Batch 1 start (0, 0, 0.2). Comparing
+# the two isolates the effect of training from random starts; the old 1M-step
+# runs (batch1_standard_1M) also differ in the observation scaling.
+#
+#   train_hover.py --config-name=config_batch2_fixed_start seed=0
+defaults:
+  - config_hover_standard
+  - _self_
+
+max_steps: 1_000_000
+buffer_size: 1_000_000
+save_interval_steps: 50_000
+snapshot_interval_steps: 100_000
+eval_interval_steps: 25_000
+curve_set: batch2
+
+env:
+  random_starts: False
+  metric_target: True

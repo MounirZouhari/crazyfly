@@ -27,9 +27,14 @@ def train(cfg: dict):
   ##############################
   # Environment setup
   ##############################
+  # Options of the hover task (crazyflie_hover.CrazyflieHoverEnv). Configs
+  # without them build the environment exactly as before.
+  env_kwargs = {k: bool(env_config[k]) for k in ('random_starts', 'metric_target')
+                if env_config.get(k) is not None}
+
   def make_env(env_config, seed):
     def make_gym_env(env_id, seed):
-      env = gym.make(env_id)
+      env = gym.make(env_id, **env_kwargs)
       env = gym.wrappers.RescaleAction(env, min_action=-1, max_action=1)
       env = gym.wrappers.RecordEpisodeStatistics(env)
       env = gym.wrappers.Autoreset(env)
@@ -104,10 +109,16 @@ def train(cfg: dict):
   # the rest of this trainer is not specific to the drone.
   tester = None
   if cfg.get('eval_interval_steps'):
-    from hover_eval import FlightTester, append_learning_curve
-    tester = FlightTester(flight_steps=cfg.eval_flight_steps)
+    from hover_eval import CURVE_STARTS, FlightTester, append_learning_curve
+    tester = FlightTester(flight_steps=cfg.eval_flight_steps,
+                          metric_target=env_kwargs.get('metric_target', False))
     curve_path = os.path.join(output_dir, 'learning_curve.csv')
-    test_starts = ['home'] * int(cfg.eval_flights)
+    # Batch 1: a few flights from the training start. Batch 2: the same 21
+    # starts from every test group in every run (hover_eval.CURVE_STARTS).
+    if cfg.get('curve_set', 'home') == 'batch2':
+      test_starts = CURVE_STARTS
+    else:
+      test_starts = ['home'] * int(cfg.eval_flights)
 
   def record_learning_curve(env_steps, train_seconds):
     flights = tester.fly(agent, test_starts, seed=cfg.seed + 1000)
@@ -118,7 +129,28 @@ def train(cfg: dict):
     late_error = np.mean([r['late_error_m'] for r in rows])
     writer.add_scalar('test/late_error_m', late_error, env_steps)
     writer.add_scalar('test/return', np.mean([r['return'] for r in rows]), env_steps)
+    for test_set in sorted({r['test_set'] for r in rows}):
+      mine = [r for r in rows if r['test_set'] == test_set]
+      writer.add_scalar(f'test_{test_set}/late_error_m',
+                        np.mean([r['late_error_m'] for r in mine]), env_steps)
+      writer.add_scalar(f'test_{test_set}/crash_fraction',
+                        np.mean([r['crashed'] for r in mine]), env_steps)
     tqdm.tqdm.write(f'Test flights at {env_steps} steps: late error {late_error:.3f} m')
+
+  # Batch 2 keeps the agent (no replay buffer) every snapshot_interval_steps
+  # in snapshots/, so any point of training can be tested later.
+  snapshot_interval = cfg.get('snapshot_interval_steps')
+  snapshots = None
+  if snapshot_interval:
+    snapshots = ocp.CheckpointManager(
+        os.path.join(output_dir, 'snapshots'),
+        options=ocp.CheckpointManagerOptions(create=True),
+        item_names=('agent',)
+    )
+
+  def save_snapshot(env_steps):
+    if env_steps not in snapshots.all_steps():  # a resumed run may already have it
+      snapshots.save(env_steps, args=ocp.args.Composite(agent=ocp.args.StandardSave(agent)))
 
   options = ocp.CheckpointManagerOptions(
       max_to_keep=1, save_interval_steps=cfg['save_interval_steps']
@@ -270,7 +302,12 @@ def train(cfg: dict):
         test_start = time.perf_counter()
         record_learning_curve(env_steps, test_start - loop_start - test_seconds)
         test_seconds += time.perf_counter() - test_start
+      if snapshots is not None and env_steps % snapshot_interval < env_config.num_envs:
+        save_snapshot(env_steps)
     pbar.close()
+    if snapshots is not None:
+      snapshots.wait_until_finished()
+      snapshots.close()
     # The upstream interval can exceed a short experiment. Always keep the
     # final learned state so smoke runs can be resumed and inspected too.
     final_step = global_step + env_config.num_envs

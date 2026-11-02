@@ -1,0 +1,25 @@
+# Batch 2, experiment R1: TD-MPC2 with the published settings
+# (config_hover_standard) learning to fly to the target from a new random
+# start in every training flight.
+#
+#   train_hover.py --config-name=config_batch2_random_start seed=0
+#
+# Starts are drawn from the Batch 2 training area (crazyflie_hover.py:
+# x, y in [-0.75, 0.75] m, height 0.2-1.5 m, at least 0.3 m from the target,
+# held-out block x, y in [0.25, 0.75] m excluded). The target stays at
+# (0, 0, 1). The target offset in the observation is in metres. Everything
+# else (reward, physics, sensor noise, 10 s flights) is as in Batch 1.
+defaults:
+  - config_hover_standard
+  - _self_
+
+max_steps: 1_000_000
+buffer_size: 1_000_000          # official TD-MPC2 default: keeps every transition
+save_interval_steps: 50_000     # resume point if a cluster job is interrupted
+snapshot_interval_steps: 100_000
+eval_interval_steps: 25_000
+curve_set: batch2
+
+env:
+  random_starts: True
+  metric_target: True

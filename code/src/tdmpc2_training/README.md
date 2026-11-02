@@ -94,9 +94,46 @@ at about 44 steps/s alone, two at once at about 34 steps/s each.
 
 | File | Purpose |
 | --- | --- |
-| `crazyflie_hover.py` | Gymnasium adapter; `place_drone` moves the start/target |
-| `hover_eval.py` | Test flights (all flights batched on the GPU) and metric definitions |
-| `eval_hover.py` | Load a checkpoint and test it |
+| `crazyflie_hover.py` | Gymnasium adapter; `place_drone` moves the start/target; Batch 2 start area and sampler |
+| `hover_eval.py` | Test flights (all flights batched on the GPU), metric definitions, fixed test starts |
+| `eval_hover.py` | Load a checkpoint and test it (any test group, with or without planning) |
 | `run_seeds.py` | Train + test a list of seeds |
 | `analyze_seeds.py` | Plots and summary for a batch |
 | `tdmpc2_jax/build.py` | Builds the agent; shared by training and testing |
+| `check_batch2.py` | Automatic checks of the Batch 2 task code |
+| `bench_latency.py` | Time per control decision (deployment), any network size and planning budget |
+| `profile_training.py` | Where one training step spends its time |
+| `EXPERIMENTS.md` | Every experiment: question, settings, folders, validation |
+
+## Batch 2: random starts
+
+Every training flight starts at a new random place (x, y within 0.75 m of
+the target axis, height 0.2-1.5 m, a held-out block never used), and the agent
+sees the target offset in metres. Both are options of `CrazyflieHoverEnv`
+(`random_starts`, `metric_target`), off by default so Batch 1 runs are
+unchanged. Check the task code first:
+
+```bash
+.venv/bin/python code/src/tdmpc2_training/check_batch2.py
+```
+
+Train (published TD-MPC2 settings, 1M steps; on Narval see `cluster/seed_job.sh`):
+
+```bash
+.venv/bin/python code/src/tdmpc2_training/train_hover.py --config-name=config_batch2_random_start seed=0
+```
+
+`config_batch2_fixed_start` is the same with the Batch 1 start. Every 25k
+steps 21 test flights go to `learning_curve.csv`; the agent is kept every
+100k steps in `snapshots/`. Test a finished run on all test groups, then
+without planning and with a small planner:
+
+```bash
+.venv/bin/python code/src/tdmpc2_training/eval_hover.py <run_dir>
+.venv/bin/python code/src/tdmpc2_training/eval_hover.py <run_dir> --no-mpc
+.venv/bin/python code/src/tdmpc2_training/eval_hover.py <run_dir> --plan 64x2
+.venv/bin/python code/src/tdmpc2_training/eval_hover.py <run_dir> --snapshot 300000
+```
+
+Test groups and metrics are described in `hover_eval.py` and `EXPERIMENTS.md`.
+Existing results are never overwritten unless `--overwrite` is given.

@@ -18,12 +18,21 @@ eval_interval_steps: 5_000
 eval_flights: 3
 eval_flight_steps: 500
 
+# Batch 2 additions, all off here so Batch 1 runs are unchanged.
+# curve_set 'batch2': learning-curve flights from hover_eval.CURVE_STARTS
+# (21 starts from every test group) instead of eval_flights x 'home'.
+# snapshot_interval_steps: keep the agent every N steps in snapshots/.
+curve_set: home
+snapshot_interval_steps: null
+
 env:
   backend: gymnasium
   env_id: CrazyflieHover-v0
   num_envs: 1
   utd_ratio: 1.0
   asynchronous: False
+  random_starts: False   # True: a new random start for every training flight
+  metric_target: False   # True: target offset in metres (crazyflie_hover.HoverDrone)
 
 encoder:
   encoder_dim: 128

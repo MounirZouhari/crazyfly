@@ -9,6 +9,14 @@ Metrics are defined here, before looking at any multi-seed results:
   late error      mean distance to the target over the last 100 steps flown (2 s)
   time in 10 cm   fraction of the steps after the first 2 s spent within 0.10 m
                   of the target; steps after a crash count as outside
+
+Test starts. TEST_STARTS are the six Batch 1 starts. TEST_SETS adds the Batch 2
+groups, drawn once from a fixed seed so that every model, in every run, is
+tested from exactly the same places:
+  batch1      the six Batch 1 starts (continuity with the Batch 1 results)
+  train_area  50 starts from the same distribution as Batch 2 training
+  held_out    30 starts in the held-out block (inside the area, never trained on)
+  outside     30 starts outside the training area (0.25-0.75 m beyond its edge)
 """
 import csv
 import os
@@ -18,9 +26,10 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from constants import SCENE_PATH_1_DRONE, TARGET_POS
-from crazyflie_env import CrazyflieEnv
-from crazyflie_hover import ACTION_HIGH, ACTION_LOW, place_drone
+from constants import TARGET_POS
+from crazyflie_hover import (ACTION_HIGH, ACTION_LOW, HELD_OUT_XY_HIGH, HELD_OUT_XY_LOW,
+                             START_AREA_HIGH, START_AREA_LOW, HoverDrone, place_drone,
+                             sample_training_start)
 
 CONTROL_DT = 0.02         # seconds per control step (50 Hz)
 LATE_WINDOW_STEPS = 100   # last 2 s of a flight
@@ -37,6 +46,62 @@ TEST_STARTS = {
     "minus_y": (0.0, -0.5, 0.2),
     "above": (0.0, 0.0, 1.5),
 }
+
+TEST_SET_SEED = 2026          # never change: it defines the Batch 2 test starts
+OUTSIDE_MIN, OUTSIDE_MAX = 1.0, 1.5   # max(|x|, |y|) range of the outside starts
+
+
+def _make_test_sets():
+    rng = np.random.default_rng(TEST_SET_SEED)
+
+    def held_out():
+        low = np.array([*HELD_OUT_XY_LOW, START_AREA_LOW[2]])
+        high = np.array([*HELD_OUT_XY_HIGH, START_AREA_HIGH[2]])
+        return rng.uniform(low, high)
+
+    def outside():
+        while True:
+            xyz = rng.uniform([-OUTSIDE_MAX, -OUTSIDE_MAX, START_AREA_LOW[2]],
+                              [OUTSIDE_MAX, OUTSIDE_MAX, START_AREA_HIGH[2]])
+            if np.max(np.abs(xyz[:2])) >= OUTSIDE_MIN:
+                return xyz
+
+    def labelled(name, draw, n):
+        return [(f"{name}/{i:02d}", tuple(float(v) for v in draw())) for i in range(n)]
+
+    return {
+        "batch1": list(TEST_STARTS.items()),
+        "train_area": labelled("train_area", lambda: sample_training_start(rng), 50),
+        "held_out": labelled("held_out", held_out, 30),
+        "outside": labelled("outside", outside, 30),
+    }
+
+
+TEST_SETS = _make_test_sets()
+
+# Learning-curve flights during Batch 2 training (curve_set: batch2): the
+# training start plus the first few starts of each group, 21 flights in all.
+CURVE_STARTS = ([("home", TEST_STARTS["home"])] + TEST_SETS["train_area"][:8]
+                + TEST_SETS["held_out"][:6] + TEST_SETS["outside"][:6])
+
+
+def test_set_of(label):
+    """'held_out/03' -> 'held_out'; Batch 1 names like 'home' -> 'batch1'."""
+    return label.split("/")[0] if "/" in label else "batch1"
+
+
+def resolve_starts(starts):
+    """Names from TEST_STARTS, or (label, (x, y, z)) pairs -> labels, (n, 3) array."""
+    labels, coords = [], []
+    for entry in starts:
+        if isinstance(entry, str):
+            labels.append(entry)
+            coords.append(TEST_STARTS[entry])
+        else:
+            label, xyz = entry
+            labels.append(label)
+            coords.append(xyz)
+    return labels, np.asarray(coords, dtype=np.float32)
 
 
 @dataclass
@@ -73,24 +138,35 @@ class Flight:
             "late_error_z_m": float(error_z[late].mean()),
             "late_height_m": float(self.position[late, 2].mean()),
             "time_in_10cm": float(inside / steps_after_settling) if steps_after_settling > 0 else float("nan"),
+            # Added for Batch 2; Batch 1 files simply lack these columns.
+            "test_set": test_set_of(self.start_name),
+            "start_x": float(self.start[0]),
+            "start_y": float(self.start[1]),
+            "start_z": float(self.start[2]),
         }
 
 
 class FlightTester:
-    """Flies a batch of test flights with a given agent."""
+    """Flies a batch of test flights with a given agent.
 
-    def __init__(self, flight_steps=500):
-        self.drone = CrazyflieEnv(scene_path=SCENE_PATH_1_DRONE, num_drones=1)
+    mpc=False flies TD-MPC2's learned policy network alone, without planning.
+    metric_target must match the observation the agent was trained with.
+    """
+
+    def __init__(self, flight_steps=500, mpc=True, metric_target=False):
+        self.drone = HoverDrone(metric_target=metric_target)
         self.flight_steps = int(flight_steps)
+        self.mpc = bool(mpc)
         self._fly = jax.jit(self._fly_batch)
 
-    def fly(self, agent, start_names, seed, targets=None):
-        """Fly one flight per entry in `start_names` (names from TEST_STARTS).
+    def fly(self, agent, starts, seed, targets=None):
+        """Fly one flight per entry in `starts`: names from TEST_STARTS, or
+        (label, (x, y, z)) pairs such as the entries of TEST_SETS.
 
         The same `seed` gives the same sensor noise and planner randomness, so
         two agents tested with one seed face identical conditions.
         """
-        starts = np.array([TEST_STARTS[name] for name in start_names], dtype=np.float32)
+        start_names, starts = resolve_starts(starts)
         if targets is None:
             targets = np.tile(np.asarray(TARGET_POS, dtype=np.float32), (len(starts), 1))
         reset_key, plan_key = jax.random.split(jax.random.PRNGKey(seed))
@@ -130,8 +206,12 @@ class FlightTester:
 
         def control_step(carry, key):
             states, plan, alive = carry
-            action, plan = agent.act(states.obs, prev_plan=plan,
-                                     deterministic=True, train=False, key=key)
+            if self.mpc:
+                action, plan = agent.act(states.obs, prev_plan=plan,
+                                         deterministic=True, train=False, key=key)
+            else:
+                action, _ = agent.act(states.obs, mpc=False,
+                                      deterministic=True, train=False, key=key)
             # Same mapping as Gymnasium's RescaleAction: [-1, 1] -> drone units.
             command = jnp.clip(low + (action + 1.0) * 0.5 * (high - low), low, high)
             states = step_all(states, command)
