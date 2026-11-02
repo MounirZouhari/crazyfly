@@ -359,7 +359,17 @@ The wind acts through the simulator's air model, so it pushes on the drone the w
 
 **How it was tested.** Every Batch 2 run kept its agent every 100k steps (10 snapshots). The script `eval_snapshots.py` flies every snapshot from the 40 validation starts and the 110 test starts, with planning and with the policy network only, always with the same sensor noise, so that differences between snapshots can only come from the agents. The best snapshot of each run is chosen on the validation starts alone; its test results are then compared with those of the final snapshot. Choosing on separate validation starts matters: choosing on the test starts would make the "best" snapshot look better than it really is.
 
-*Results pending.*
+**The result for the small agents (11 seeds).**
+
+- **The swings are real.** From 500k steps on, the success of a seed from the training-area starts changes from one snapshot to the next with a standard deviation of 0.34 ± 0.03, while the noise of 50 test flights alone would give about 0.04 to 0.07. Since every snapshot flies the same starts with the same sensor noise, these are changes of the agent itself.
+- **What swings is mostly precision.** From one snapshot to the next, the typical final error of the full flights moves between about 4 and 15 cm, sometimes 20 to 60 cm. Crashes are rare but not absent: one seed's 500k snapshot crashed in 44% of the flights from the training area, and the next one did not.
+- **The best snapshot beats the final one.** Choosing each run's snapshot on the 40 validation starts alone gives an average test success of 97% from the training area, against 76% for the final snapshots (+21 ± 11 points; +9 ± 10 from the held-out block, +7 ± 8 from outside). It rescues exactly the weak seeds: seed 8 goes from 14% to 100% and seed 10 from 2% to 100%.
+
+![Every 100k-step snapshot of every run, flown from the same starts with the same sensor noise (thin lines: one seed each; thick line: mean). The first four panels show success per group of starts, the last one the typical final error from the training area, with the 10 cm threshold dotted.](code/src/tdmpc2_training/reports/figures/snapshots.png)
+
+[R1_SNAP]
+
+**What it means.** Training longer does not make an agent settle: even after 500k steps, its precision keeps moving by several centimetres from one checkpoint to the next, while it stays safe. Because success is a 10 cm threshold and the typical error sits close to it, these small moves turn into large jumps of success, which is also why the final results of Section 5.7 differ so much between seeds. The cure that works now is simple: keep snapshots, test them on validation starts, and keep the best. The cure that would work at the root is to make precision matter more to the agent (Section 5.13).
 
 ## 5.13 A sharper reward near the target (pilot)
 
@@ -481,7 +491,11 @@ This chapter answers the ten questions that were drawn from Professor Bellinger'
 
 ## Q2. Does longer training resolve the variability?
 
-*Completed with the final results.*
+**Short answer.** It resolves the variability in safety, not in precision. After 1M steps, no small random-start agent crashes from the training area or the held-out block, but how precisely each one hovers still varies between seeds and drifts within each run.
+
+**Evidence (established for the small model, Sections 5.7 and 5.12).** All 11 small agents avoid crashes, but their final success from the training area ranges from 8% to 100%, because their steady-state error sits a few centimetres on either side of the 10 cm threshold. The snapshots show that the same happens within a run: from one 100k-step snapshot to the next, success changes five to seven times more than test noise can explain, mostly because the steady-state error moves between about 4 and 15 cm. Choosing each run's snapshot on separate validation starts recovers most of the loss (Section 5.12). [Q2_R1]
+
+**Why, and what to do.** A likely cause is the reward, which barely distinguishes 5 cm from 15 cm (Section 5.13); [Q2_SHARP] In practice, a run should be judged by its best validated snapshot, not by its last one, and the success threshold should be reported together with the full distribution of errors.
 
 ## Q3. How do TD-MPC2 and PPO compare in simulator steps and wall-clock time?
 
@@ -505,11 +519,23 @@ This chapter answers the ten questions that were drawn from Professor Bellinger'
 
 ## Q6. Can TD-MPC2 generalise from continuously randomised starting positions?
 
-*Completed with the final results.*
+**Short answer.** Yes. Trained on random starts, TD-MPC2 learns to reach the target from anywhere in the region, does equally well from a block of starts it never trained from, and still mostly succeeds from starts up to 0.75 m outside the region. Trained from one start, it does none of this.
+
+**Evidence.** [Q6_EVIDENCE]
+
+**What to say if asked more.** The held-out block is inside the range of the training starts, so it tests interpolation; the outside starts test moderate extrapolation, and that is where the remaining failures are. Section 9.2 lists ways to reduce them.
 
 ## Q7. When and why does the learned world model improve generalisation?
 
-*Completed with the final results.*
+**Short answer.** The world model helps when it is used in situations its training data covers, and hurts when it is not. On covered situations, planning with the model turns a safe but imprecise policy network into a precise controller. Off its data, the planner seeks out the model's mistakes and crashes.
+
+**Evidence (Sections 5.4, 5.8 and 5.9).**
+
+- **Single-start agents, used away from their start:** planning costs the published 1M agents 26 points of success [-46, -8] and multiplies their crashes by four (66% against 15% from training-area starts). The planner's flights go where the world model is 2.4 to 2.8 times more wrong than along the policy network's flights, the model error rises sharply just before crashes, and restraining the planner reduces crashes by 19 points. This is model exploitation, the known weakness of planning with learned models (Janner et al., 2019).
+- **Random-start agents, used where they trained:** planning adds 69 points of success [+30, +96] for the small agents. Their policy network alone never crashes but typically ends 21 cm from the target; the planner brings this to 7 cm. Along the planner's flights the model is as accurate or more accurate than along the policy's, and restraining the planner only loses precision. [Q7_R1]
+- **In between:** for random-start agents pushed by strong wind into states they never saw, the planner again crashes more than the policy network alone (41% against 29% at 4 m/s, Section 5.10).
+
+**What to say if asked more.** The answer to "when" is "where the model's training data covers the situation", and the answer to "why" has two parts: on covered data, planning adds precision the policy network lacks; off it, optimising against an imperfect model finds its errors. The practical consequences are to train on the variation that will be met (random starts, varied physics), and to keep the planner away from situations the model does not know (for example by penalising uncertain predictions).
 
 ## Q8. Does planning improve robustness compared with the policy network alone?
 
