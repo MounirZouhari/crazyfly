@@ -10,6 +10,8 @@ Writes to <first batch>/analysis/:
     learning_curves_by_group.png   success and crashes during training, per test group
     final_by_group.png             final agents per test group, with and without planning
     comparison.png                 every batch side by side (with --compare)
+    disturbances.png               success under each disturbance and strength
+                                   (runs tested with eval_disturbances.py)
     summary.md                     tables, mean +/- standard error across seeds
 
 Definitions, fixed before any Batch 2 result was seen:
@@ -46,6 +48,14 @@ GROUP_TITLES = {
 }
 RULES = {"planner": "with planning (as trained)", "policy_only": "policy network only",
          "plan64x2": "small planner 64x2"}
+# Disturbance tests: baseline value on the x axis, strengths, axis label.
+DISTURBANCE_AXES = {
+    "wind": (0.0, [1.0, 2.0, 3.0, 4.0], "steady wind (m/s)"),
+    "gust": (0.0, [2.0, 4.0, 6.0], "1 s gust from 3 s (m/s)"),
+    "mass": (1.0, [1.05, 1.10, 1.15], "mass and inertia (x nominal)"),
+    "motor": (1.0, [0.95, 0.90], "motor strength (x nominal)"),
+    "delay": (0.0, [1.0, 2.0], "command delay (control steps of 20 ms)"),
+}
 
 
 def read_csv(path):
@@ -87,6 +97,10 @@ class Seed:
         folders = {"planner": prefix, "policy_only": f"{prefix}_policy_only", "plan64x2": f"{prefix}_plan64x2"}
         self.final = {rule: read_csv(run_dir / folder / "summary.csv")
                       for rule, folder in folders.items() if (run_dir / folder / "summary.csv").exists()}
+        # Disturbance tests (eval_disturbances.py), with planning and policy only.
+        self.disturb = {rule: read_csv(run_dir / folder / "summary.csv")
+                        for rule, folder in [("planner", "disturbances"), ("policy_only", "disturbances_policy_only")]
+                        if (run_dir / folder / "summary.csv").exists()}
         self.curve = defaultdict(lambda: defaultdict(list))   # step -> group -> rows
         curve_path = run_dir / "learning_curve.csv"
         if curve_path.exists() and not batch1:
@@ -106,6 +120,16 @@ class Seed:
             late = [float(r["late_error_m"]) for r in rows if r["crashed"] == "False"]
             return float(np.median(late)) if late else np.nan
         raise ValueError(stat)
+
+    def disturb_stat(self, rule, kind, strength, stat):
+        """Success or crash share of one disturbance condition ('none' is the undisturbed baseline)."""
+        rows = [r for r in self.disturb.get(rule, [])
+                if r["disturbance"] == kind and np.isclose(float(r["strength"]), strength)]
+        if not rows:
+            return np.nan
+        if stat == "success":
+            return float(np.mean([success(r) for r in rows]))
+        return float(np.mean([r["crashed"] == "True" for r in rows]))
 
     def curve_stat(self, step, group, stat):
         rows = self.curve.get(step, {}).get(group, [])
@@ -232,6 +256,63 @@ def plot_comparison(batches, out_path):
     plt.close(fig)
 
 
+def disturbance_curve(seeds, rule, kind):
+    """x values and per-seed success, with the undisturbed baseline first."""
+    base_x, strengths, _ = DISTURBANCE_AXES[kind]
+    xs = [base_x] + strengths
+    per_seed = np.array([[s.disturb_stat(rule, "none", 0.0, "success")]
+                         + [s.disturb_stat(rule, kind, x, "success") for x in strengths] for s in seeds])
+    return np.array(xs), per_seed
+
+
+def plot_disturbances(batches, out_path):
+    batches = [(name, seeds) for name, seeds in batches if all(s.disturb for s in seeds)]
+    fig, axes = plt.subplots(1, len(DISTURBANCE_AXES), figsize=(3.6 * len(DISTURBANCE_AXES), 4.4), sharey=True)
+    colors = plt.cm.tab10(np.arange(len(batches)))
+    for ax, kind in zip(axes, DISTURBANCE_AXES):
+        for j, (name, seeds) in enumerate(batches):
+            for rule, style in [("planner", "-"), ("policy_only", "--")]:
+                if not all(rule in s.disturb for s in seeds):
+                    continue
+                xs, per_seed = disturbance_curve(seeds, rule, kind)
+                mean = np.nanmean(per_seed, axis=0)
+                se = (np.nanstd(per_seed, axis=0, ddof=1) / np.sqrt(len(per_seed))
+                      if len(per_seed) > 1 else np.zeros_like(mean))
+                ax.errorbar(xs, mean, yerr=se, color=colors[j], ls=style, marker="o", ms=4, capsize=3,
+                            label=f"{name}: {RULES[rule]}")
+        ax.set_xlabel(DISTURBANCE_AXES[kind][2], fontsize=9)
+        ax.set_ylim(-0.03, 1.03)
+        ax.grid(alpha=0.3)
+        ax.spines[["top", "right"]].set_visible(False)
+    axes[0].set_ylabel("success share, 50 training-area starts\n(mean ± SE across seeds)")
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", ncol=min(4, len(labels)), frameon=False, fontsize=8)
+    fig.suptitle("Disturbances never seen in training (solid: with planning; dashed: policy network only)",
+                 fontsize=12)
+    fig.tight_layout(rect=(0, 0.1, 1, 0.95))
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
+def disturbance_lines(batches):
+    batches = [(name, seeds) for name, seeds in batches if all(s.disturb for s in seeds)]
+    if not batches:
+        return []
+    header = ["none"] + [f"{kind} {x:g}" for kind, (_, strengths, _) in DISTURBANCE_AXES.items() for x in strengths]
+    lines = ["", "## Disturbances (success share on the 50 training-area starts, mean across seeds)", "",
+             "| batch | decision rule | " + " | ".join(header) + " |",
+             "|---|---|" + "---:|" * len(header)]
+    for name, seeds in batches:
+        for rule in ["planner", "policy_only"]:
+            if not all(rule in s.disturb for s in seeds):
+                continue
+            cells = [np.nanmean([s.disturb_stat(rule, "none", 0.0, "success") for s in seeds])]
+            for kind, (_, strengths, _) in DISTURBANCE_AXES.items():
+                cells += [np.nanmean([s.disturb_stat(rule, kind, x, "success") for s in seeds]) for x in strengths]
+            lines.append(f"| {name} | {RULES[rule]} | " + " | ".join(f"{c:.0%}" for c in cells) + " |")
+    return lines
+
+
 def batch_table(name, seeds, rule):
     lines = [f"| {name} | {RULES[rule]} | " + " | ".join(
         f"{fmt([s.final_stat(rule, g, 'success') for s in seeds], 0, True)} / "
@@ -275,8 +356,10 @@ def write_summary(main_name, main_dir, seeds, median, batches, out_path):
         lines.append(f"| {s.number}{mark} | " + " | ".join(
             f"{s.final_stat('planner', g, 'success'):.0%}" for g in GROUPS)
             + f" | {s.final_stat('planner', 'train_area', 'late_error_survived'):.3f} |")
+    lines += disturbance_lines(batches)
     lines += ["", "Plots: learning_curves_by_group.png, final_by_group.png"
-              + (", comparison.png" if len(batches) > 1 else "")]
+              + (", comparison.png" if len(batches) > 1 else "")
+              + (", disturbances.png" if disturbance_lines(batches) else "")]
     out_path.write_text("\n".join(lines) + "\n")
 
 
@@ -298,6 +381,8 @@ def main():
     plot_final(seeds, median, name, out_dir / "final_by_group.png")
     if len(batches) > 1:
         plot_comparison(batches, out_dir / "comparison.png")
+    if any(all(s.disturb for s in batch_seeds) for _, batch_seeds in batches):
+        plot_disturbances(batches, out_dir / "disturbances.png")
     write_summary(name, args.batch_dir, seeds, median, batches, out_dir / "summary.md")
     print((out_dir / "summary.md").read_text())
     print(f"Plots saved to {out_dir}")

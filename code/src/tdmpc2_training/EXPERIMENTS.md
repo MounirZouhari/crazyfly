@@ -185,6 +185,57 @@ All on Nov 1, 2026. Evidence is in `outputs/batch2_validation/` on the home PC.
 
   Logs: `$SCRATCH/tdmpc2/batch2/logs/`. Job IDs:
   `$SCRATCH/tdmpc2/batch2/job_ids.txt`.
+- **Start times:**
+  - R4 finished by 21:20 (25 runs, about 2 min each).
+  - R1 tasks 0-9 started at 21:38 with commit `8edab5b`.
+  - R1 task 10 and C1 started at 21:44 with commit `52873af`, which was synced in between.
+
+  `52873af` differs only by new scripts and by reseeding a run that is
+  *resumed* from a checkpoint. That is not used by a fresh run, and on the
+  CPU fresh runs were checked to be identical. Each run records its commit
+  in its log, and each batch in `batch_info.json`.
+- **Disturbance tests**, queued so each starts when its training finishes:
+  - job 7660609: the three Batch 1 1M-step agents;
+  - job 7660720: R1, each task waiting for the same R1 task (`aftercorr`);
+  - job 7660721: C1, likewise.
+- **P (job 7659441, 30 min)**, A100 2/7 slice, native Linux
+  (`outputs/batch2/profiling_narval/`):
+  - **Time per control decision**, one drone, median / 99th percentile /
+    worst: published network with the 512x6 planner 6.1 / 7.0 / 11.7 ms on
+    the GPU slice and 516 ms on 2 CPU cores; policy network only 0.37 ms
+    (GPU) and 0.20 ms (CPU); small network with the 128x3 planner 1.4 ms
+    (GPU) and 11.4 ms (CPU).
+  - The home RTX 3060 under WSL2 measured 10.7 ms for the published
+    planner, so WSL adds overhead.
+  - **One training step, published settings:** simulating the drone
+    6.8 ms, planning 10.2 ms, learning update 2.6 ms (overlapping), 49
+    steps/s. Small settings: 88 steps/s.
+  - These speeds match Batch 1 (89 and 42-49 steps/s).
+
+## First results: Batch 1 agents on the Batch 2 test starts (R4)
+
+Success = full 10 s flight with late error below 10 cm; mean across seeds,
+success / crashes (`outputs/batch1_standard_1M/analysis/summary.md`):
+
+| Agents | Decision rule | train_area | held_out | outside | batch1 starts |
+| --- | --- | --- | --- | --- | --- |
+| published, 1M steps (3 seeds) | with planning | 20% / 66% | 2% / 91% | 2% / 87% | 20% / 59% |
+| published, 1M steps | policy network only | 46% / 15% | 22% / 54% | 0% / 77% | 33% / 6% |
+| published, 50k steps (11 seeds) | with planning | 0% / 98% | 0% / 98% | 0% / 100% | 0% / 87% |
+| small, 50k steps (11 seeds) | with planning | 19% / 9% | 11% / 15% | 4% / 31% | 18% / 6% |
+| small, 50k steps | policy network only | 4% / 6% | 4% / 1% | 0% / 17% | 2% / 2% |
+
+Agents trained from a single start mostly fail from other starts, as Batch 1
+showed. The new observation is that the 1M-step agents crash far more often
+**with** planning than with their policy network alone on starts they never
+trained from (66% vs 15% crashes on training-area starts).
+
+A hypothesis to test with R1: the world model is wrong in unfamiliar states,
+and the planner then picks actions that the model wrongly predicts to be good
+("model exploitation"). The small 50k agents show the opposite on precision:
+planning gives more successes. So whether planning helps depends on the
+agent and on the situation, which is what R1, C1 and the disturbance tests
+measure.
 
 ## Next: disturbance tests (D)
 
