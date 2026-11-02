@@ -1,0 +1,24 @@
+# Batch 2, experiment H2 (pilot): the small TD-MPC2 trained like the small
+# random-start runs (config_batch2_random_start_small), but every training
+# flight also has randomised physics: mass and inertia x1.0-1.15, motor
+# strength x0.9-1.0, steady wind 0-3 m/s from a random direction
+# (crazyflie_hover_dr.py). Tests use nominal physics and the disturbance tests.
+# Question: does planning with a world model trained on varied physics help
+# under disturbances inside that range, and how far beyond it?
+#
+#   train_hover.py --config-name=config_batch2_randomized_small seed=0
+defaults:
+  - config_hover
+  - _self_
+
+max_steps: 1_000_000
+buffer_size: 1_000_000
+save_interval_steps: 50_000
+snapshot_interval_steps: 100_000
+eval_interval_steps: 25_000
+curve_set: batch2
+
+env:
+  env_id: CrazyflieHoverRandomized-v0
+  random_starts: True
+  metric_target: True

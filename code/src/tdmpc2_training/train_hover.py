@@ -11,6 +11,8 @@ import gymnasium as gym
 from crazyflie_hover import CrazyflieHoverEnv
 
 gym.register("CrazyflieHover-v0", entry_point=CrazyflieHoverEnv)
+# Randomised physics in every flight (crazyflie_hover_dr.py); imported only when used.
+gym.register("CrazyflieHoverRandomized-v0", entry_point="crazyflie_hover_dr:RandomizedHoverEnv")
 
 from tdmpc2_jax.train import train
 

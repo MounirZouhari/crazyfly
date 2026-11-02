@@ -66,15 +66,22 @@ run.**
 
 ## Q5. Can TD-MPC2 use parallel environments?
 
-**Established as a measured projection (home GPU), Narval run pending.**
-- Simulation parallelises perfectly: 128 drones cost as much as one (8-10 ms).
-- But TD-MPC2 plans for every drone (10.6 ms for 1 drone, 735 ms for 128)
-  and by default makes one learning update per simulated step (12.4 ms each).
-- With 128 drones it would therefore train only about 1.7x faster (55 vs 32
-  steps/s). With 1 update per 8 steps, 4.2x, but that is a different
-  algorithm and needs its own sample-efficiency check.
-- The projection for one drone (32 steps/s) matches the measured training
-  speed (31).
+**Established as a measured projection (Narval A100 slice and home GPU), not
+yet as full training runs.**
+- Simulation parallelises perfectly: 128 drones cost the same as one (about
+  6 ms on Narval).
+- But TD-MPC2 plans for every drone and, by default, makes one learning
+  update per simulated step.
+- Projected training speed (`outputs/batch2/parallel_projection_narval/`):
+  - published size: 45 steps/s with 1 drone, 68 with 8, 74 with 128 (1.6x);
+  - small size: 93 with 1, 223 with 8, 271 with 128 (2.9x);
+  - with 1 update per 2 steps: 116 and 517 steps/s. That is a different
+    algorithm and would need its own sample-efficiency check.
+- The 1-drone projections match the measured training speeds (46-49 and 88
+  steps/s).
+- So parallel drones help TD-MPC2 only modestly at its default. PPO gains
+  much more because it uses each large batch of transitions for a few big
+  updates.
 
 ## Q6. Can TD-MPC2 learn from continuously randomised starts and generalise?
 

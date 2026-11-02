@@ -144,3 +144,8 @@ So anchoring the planner to the policy network's proposals removes most of its e
 - **Revised conclusion:** more conservative planning reliably removes part of the planner's extra crashes, consistent in all 3 1M seeds. So exploitation of model errors is one mechanism. It is not the whole story: for single-start 1M agents the policy network alone remains far more robust (63% vs 15% crashes).
   - The seed-4 result (23% to 0% crashes) was an extreme case.
   - Remaining candidates: the value function is wrong off the training data (MPPI ranks plans by model reward plus value); 256 free candidates still allow exploitation.
+
+**00:35: parallel projection on Narval** (job 7663279, 36 min, `outputs/batch2/parallel_projection_narval/`), with 1 update per simulated step:
+- **Published size:** simulate 6.0 ms for any N; plan 6.4 ms (1 drone) to 475 ms (128); update 9.7 ms. Projected 45 steps/s with 1 drone, 68 with 8, 74 with 128 (1.6x).
+- **Small size:** plan 1.2 to 16.6 ms; update 3.5 ms. Projected 93, 223 and 271 steps/s (2.9x).
+- The 1-drone projections match the measured training speeds (46-49 and 88 steps/s), so the cost model holds.
