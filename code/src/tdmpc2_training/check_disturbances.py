@@ -114,7 +114,17 @@ for delay in (0, 1, 2):
 check("delay: the drone receives the new command exactly k steps late",
       received_switch == {0: 10, 1: 11, 2: 12}, str(received_switch))
 
-# 5. Optional: a trained agent with its planner ---------------------------------
+# 5. How a flight ends -----------------------------------------------------------
+from eval_disturbances import end_cause
+long_tester = DisturbedFlightTester(flight_steps=200)
+fell = long_tester.fly(pilot, at_target, seed, mass_factor=1.15)[0]
+blown = long_tester.fly(pilot, at_target, seed, wind=wind_profile("wind", 4.0, 200))[0]
+held = long_tester.fly(pilot, at_target, seed)[0]
+causes = (end_cause(fell), end_cause(blown), end_cause(held))
+check("end cause: heavy drone hits the ground, strong wind blows it out of bounds, hover completes",
+      causes == ("ground", "out_of_bounds", "completed"), str(causes))
+
+# 6. Optional: a trained agent with its planner ---------------------------------
 if len(sys.argv) > 1:
     from eval_hover import load_agent
     run_dir = Path(sys.argv[1])

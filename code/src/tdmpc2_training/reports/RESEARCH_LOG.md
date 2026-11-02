@@ -50,3 +50,22 @@ the full experiment descriptions are in `../EXPERIMENTS.md`.
 
 **21:50: overnight program started** (priorities in `../EXPERIMENTS.md` and the handoff).
 - A1 started: re-fly 33 Batch 1 agents with 5 noise seeds x 4 flights each, to split the seed-to-seed spread into evaluation noise vs real agent differences (Q1).
+
+**22:00-22:40.**
+- **D pilot launched:** small TD-MPC2 with random starts, 3 seeds x 1M (`config_batch2_random_start_small`), in two pieces of at most 3 h (jobs 7661493, then 7661496 with `aftercorr`), disturbance tests chained (job 7661497). The pieces started immediately: jobs of 3 h or less are scheduled at once on Narval, while 10 h jobs waited about 50 min.
+- **Disturbance tests of the Batch 1 1M agents done** (job 7660609, 30 min per seed). Success from 50 training-area starts, planning vs policy only:
+  - none: 21% vs 46%
+  - wind 1 m/s: 15% vs 15%; wind 2 m/s and above: 0% vs 0%
+  - gust 2 m/s: 17% vs 41%; gust 4 m/s and above: 0% vs 0%
+  - mass x1.15: 9% vs 36%
+  - motors x0.9: 12% vs 40%
+  - delay 40 ms: 12% vs 41%
+
+  So for single-start agents, planning is worse under every disturbance. Caveat: these starts are already new for these agents, so this is a combined shift. "Crash" includes leaving the bounds; `eval_disturbances.py` now also records `end_cause` (ground / out_of_bounds) and final height, checked by `check_disturbances.py`.
+- **R1 learning check at 75k steps:** crash share falling (home 91% to 64%, training area 99% to 83%). Training speed 46-49 steps/s, expected end about 04:20 plus final tests. C1 learns its single start faster (0% home crashes at 75k).
+- **A2 (within-run fluctuations vs training logs), 3 Batch 1 1M runs:** step-to-step changes in test late error do not correlate with changes in any logged training statistic (consistency, reward, value and policy losses, policy log std, value scale). Spearman rho between -0.14 and +0.10, all permutation p > 0.07 before correcting for 18 tests.
+  - Level correlations up to ±0.34 in two seeds mostly reflect shared slow trends.
+  - Conclusion: the training losses do not reveal when the controller gets worse, consistent with objective mismatch (Lambert et al. 2020).
+  - Open question: each learning-curve point is only 3 flights with one noise seed, so part of the fluctuation may be evaluation noise. This motivates the snapshot evaluation (many flights per snapshot).
+- **Literature checked** (`LITERATURE.md`): TD-MPC2, TD-MPC, MBPO (model exploitation), objective mismatch, Henderson 2018, Agarwal 2021, Molchanov 2019, Eschmann 2024, Peng 2018.
+- **Deployment readiness** written (`DEPLOYMENT_READINESS.md`). New `deploy_controller.py` builds the observation from Crazyflie-style state estimates and refuses to produce a firmware command; `check_deployment.py` tests it in closed loop against the simulator.

@@ -157,6 +157,14 @@ class DisturbedFlightTester(FlightTester):
         return trajectory
 
 
+def end_cause(flight):
+    """completed, ground (fell below 5 cm) or out_of_bounds (strayed 2 m beyond its start distance)."""
+    if not flight.crashed:
+        return "completed"
+    height = flight.position[flight.steps_flown - 1, 2]
+    return "ground" if height < 0.05 else "out_of_bounds"
+
+
 def wind_profile(kind, strength, steps):
     wind = np.zeros((steps, 3), dtype=np.float32)
     if kind == "wind":
@@ -210,9 +218,10 @@ def main():
             wind=wind_profile(kind, strength, args.flight_steps),
             mass_factor=strength if kind == "mass" else 1.0,
             motor_factor=strength if kind == "motor" else 1.0)
-        mine = [{"disturbance": kind, "strength": strength, **r} for r in
-                [{"seed": cfg.seed, "checkpoint_step": step, "decision": decision, "flight": i, **f.summary()}
-                 for i, f in enumerate(flights)]]
+        mine = [{"disturbance": kind, "strength": strength, "seed": cfg.seed, "checkpoint_step": step,
+                 "decision": decision, "flight": i, **f.summary(), "end_cause": end_cause(f),
+                 "final_height_m": float(f.position[f.steps_flown - 1, 2])}
+                for i, f in enumerate(flights)]
         rows += mine
         late = np.array([r["late_error_m"] for r in mine])
         print(f"{kind:<6} {strength:>5}: crashes {sum(r['crashed'] for r in mine):>3}/{len(mine)}, "
