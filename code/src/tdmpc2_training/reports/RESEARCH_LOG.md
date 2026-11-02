@@ -110,3 +110,16 @@ the full experiment descriptions are in `../EXPERIMENTS.md`.
   - The small model leads at equal steps: about 0% crashes in the training area and held-out block from 50k, 0-20% outside. R1 is at about 50% outside at 325k.
   - Small-model success is rising, but the points after 175k come from only 1-3 seeds, so they are noisy.
   - To be confirmed by the final 128-flight evaluations.
+
+**00:00-00:15: model error of all 25 Batch 1 runs (job 7663280; `outputs/batch2/model_error_summary_batch1/`).**
+- 1M single-start agents (3 seeds):
+  - The planner's flights have 2.8 ± 0.7x (training area) and 2.4 ± 0.2x (held-out block) the 3-step latent prediction error of the policy-only flights from the same starts, paired per seed. Outside, 1.1x: both fail there.
+  - Crashes, planner vs policy: training area 99/150 vs 22/150; held-out 83/90 vs 48/90.
+  - In the last 0.5 s before a crash, the model error is 4.0x that of completed flights.
+- Small 50k agents (11 seeds):
+  - Planner / policy error ratio 1.4, 1.9 and 1.3; error 7.0x higher before crashes.
+  - Error on outside starts is 2.5x that on training-area starts.
+- Published-size 50k agents: almost every flight crashes, so this is uninformative.
+- **H1 (model exploitation) supported, correlationally:** the planner drives the drone into states where its world model is wrong, and crashes follow rising model error.
+  - Alternative explanation: unusual states near a crash are hard to predict whatever caused them.
+  - Causal test started: `eval_planner_variants.py` keeps the trained weights but plans more conservatively (sampling spread 0.5 instead of 2, or half the candidates from the policy network). If exploitation is the cause, these should crash less than the default planner.
