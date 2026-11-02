@@ -911,6 +911,7 @@ A **test** of a saved agent (any of the `eval_*.py` scripts) rebuilds the agent 
 - **`analyze_flight_quality.py`**: from the step-by-step trajectories, the time to stabilise, the jitter of the commands, how often a command is at its limit, and the worst flights.
 - **`analyze_start_outcomes.py`**: the map of the test starts coloured by how many seeds succeeded from each.
 - **`probe_value.py`**: the agent's own value of hovering still at points around the target (Section 5.13); nothing is flown.
+- **`render_flights.py`**: a video of a trained agent flying up to four test flights side by side, replayed in MuJoCo's renderer with its path, the target and the 10 cm zone (`RecordingTester` records the full pose of every step). The videos in `reports/videos/` were made with it: the small model with and without planning, the single-start agent C1 and R1.
 - **`analyze_all.sh`**: runs every analysis above on the results copied home, skipping whatever is not finished yet.
 - **`variance_decomposition.py`** (A1) and **`fluctuation_analysis.py`** (A2): the two analyses of Batch 1 variability.
 - **`analyze_seeds.py`** and **`compare_methods.py`**: the Batch 1 plots and the TD-MPC2 vs PPO comparison.
