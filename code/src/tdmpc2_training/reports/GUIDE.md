@@ -248,9 +248,22 @@ The sections go from the past to the present. Sections 5.2 to 5.4 look back at B
 
 **How it was tested.** Eleven seeds of the small settings (Section 2.4), trained and tested exactly like R1. Because the small model trains faster, each run was split into two jobs of 3 hours, the second resuming from the first's checkpoint. Three seeds were run first as a pilot; the other eight were launched after the pilot had shown at 200k steps that learning worked.
 
-**The result.** [D_TABLE]
+**The result.** All 11 runs finished. Success / crashes from each group of test starts (mean ± standard error across the 11 seeds):
 
-**What it means.** [D_MEANING]
+| Decision rule | Training area | Held-out block | Outside | Batch 1 starts |
+|---|---:|---:|---:|---:|
+| with planning (as trained) | 78 ± 10% / 0 ± 0% | 83 ± 10% / 0 ± 0% | 59 ± 9% / 3 ± 2% | 80 ± 10% / 0 ± 0% |
+| policy network only | 9 ± 9% / 0 ± 0% | 9 ± 9% / 0 ± 0% | 12 ± 8% / 0 ± 0% | 11 ± 9% / 0 ± 0% |
+| small 64×2 planner | 76 ± 11% / 0 ± 0% | 77 ± 10% / 0 ± 0% | 60 ± 10% / 2 ± 2% | 79 ± 10% / 0 ± 0% |
+| Batch 1 small agents, planning | 19 ± 7% / 9 ± 3% | 11 ± 5% / 15 ± 7% | 4 ± 1% / 31 ± 6% | 18 ± 7% / 6 ± 3% |
+
+![The 11 small random-start agents at the end of training. Left: success per group of test starts with planning (blue), with the policy network only (orange) and with the small 64×2 planner (green); grey dots are single seeds. Right: crashes, almost all zero.](code/src/tdmpc2_training/reports/figures/d_final_by_group.png)
+
+Compared with the Batch 1 small agents trained from one start, random starts raise success by 59 points from the training area [+35, +81], 72 points from the held-out block [+48, +91] and 55 points from outside [+38, +72], and remove almost all crashes. Planning beats the policy network alone by 69 points from the training area [+30, +96], 74 from the held-out block [+36, +98] and 48 from outside [+18, +72]. The small 64×2 planner, which needs less than half the time on a CPU (4.4 ms against 11.4 ms per decision), does as well as the full planner (+2 points [-2, +7]).
+
+The seeds differ in one way only. Eight of the eleven succeed in 86-100% of the flights from the training area. Three (seeds 3, 8 and 10) succeed in only 8-54%, but none of them crashes: their typical final distance to the target is 9 to 13 cm, just above the 10 cm line, against 4 to 8 cm for the others.
+
+**What it means.** The small model learns to fly from anywhere in the training area, and it carries this over to the held-out block it never trained in: success and crashes there are the same as in the training area, so interpolation works. Starts up to 0.75 m outside the area are harder (59% success) but still almost never end in a crash. The policy network alone never crashes either, but it rarely ends within 10 cm; the precision comes from planning (Section 5.8). Finally, the spread between seeds that worried the professor in Batch 1 has changed nature: at 1M steps, no seed is unsafe, and what still varies is a few centimetres of precision around the 10 cm threshold (Section 5.12 shows that this also varies within a run, from one checkpoint to the next).
 
 ## 5.8 With and without planning: where the precision comes from
 
@@ -443,7 +456,21 @@ This chapter answers the ten questions that were drawn from Professor Bellinger'
 
 ## Q10. What prevents safe transfer to a real Crazyflie?
 
-*Completed with the final results.*
+**Short answer.** Two blockers and several risks, all identified in simulation and in the code; nothing has been tested on hardware.
+
+**Blockers (established by reading the firmware interface and the lab's code).**
+
+- **The commands do not match.** The agents output a collective thrust and three body moments, which MuJoCo applies directly. The Crazyflie firmware accepts attitude or body-rate setpoints with a thrust, positions or velocities, or motor powers; none of these is a body moment. The lab's earlier hardware code sent the moments as body-rate setpoints capped at 1 degree per second, which in practice controlled only the thrust. The agents have to be retrained with commands the firmware accepts, with the firmware's rate controller modelled in the simulator.
+- **Thrust calibration.** The lab's notes report that the simulator's hover thrust sent a real drone to the ceiling and had to be scaled by 0.72. The mapping from the simulator's newtons to the firmware's thrust units has to be identified.
+
+**Risks (measured in simulation).**
+
+- **Jumpy commands.** The planner's commands change by about 30% of their range from one step to the next, and half of them sit at a limit (Section 5.15). The smoothing test (Section 5.16) shows that a 40 ms filter, or acting on the planner's averaged plan, keeps the precision with commands as smooth as the policy network's; the filter must then be sized together with the real motors' response.
+- **Decision time.** The published planner needs a GPU next to the drone (6 ms per decision on a GPU slice, 516 ms on a CPU). The small planner nearly fits on a laptop CPU (11 ms) and the policy network alone fits anywhere, but it is much less precise.
+- **Wind.** Agents trained without wind lose their precision in a steady wind of 2 m/s or more (Section 5.10); whether training with wind fixes this is the subject of Section 5.11.
+- **Things the simulator does not have:** the state estimate of a real drone (the lab's final report found the Flow deck unreliable on dark netted mats), radio delay and its jitter, take-off and landing (every training flight starts in the air, at rest), battery sag and the propellers' own dynamics.
+
+**What is already solved in simulation.** The deployment adapter (`deploy_controller.py`) builds the agents' observation from Crazyflie-style state estimates (units, frames, quaternion order, the previous-action convention) and was checked to be identical to the simulator's over 300 closed-loop steps; two mistakes of the lab's earlier hardware path (an observation normaliser that was not applied, and a different previous-action convention) are avoided. A supervised test sequence is proposed in `reports/DEPLOYMENT_READINESS.md` and in Section 9.3.
 
 # 7. The code, file by file
 
@@ -608,9 +635,19 @@ bash code/src/tdmpc2_training/analyze_all.sh
 ~/.local/bin/uv run --no-project --with reportlab python code/src/tdmpc2_training/reports/make_guide.py
 ```
 
-## 7.15 How TD-MPC2 works in the code: one decision and one learning step
+## 7.15 How the code works: one step of the drone, one decision, one learning step
 
-This section follows the code line by line through the two things TD-MPC2 does all the time: deciding on an action, and learning from experience. The line numbers refer to `tdmpc2_jax/tdmpc2.py` and `tdmpc2_jax/world_model.py` as of November 2, 2026.
+This section follows the code through the three things that happen all the time during training: the simulated drone moves for one step, the agent decides on its next action, and the agent learns from what it has seen. The line numbers refer to the files as of November 2, 2026.
+
+**One step of the drone: `CrazyflieHoverEnv.step()` (`crazyflie_hover.py` line 138).**
+
+1. The four commands (thrust in newtons, three body moments) are checked and clipped to their limits, then passed to the lab's compiled step function, `CrazyflieEnv.step()` (`gpu_training/crazyflie_env.py` line 259).
+2. The lab's step builds the physics model with this flight's mass, inertia and motor strength (lines 266-274; this is how the disturbance tests and H2 change the physics), clips the commands again, and advances MuJoCo by 10 sub-steps of 2 ms, that is one control step of 20 ms (line 283).
+3. The observation is built by `_get_obs()` (line 366). Small random errors are added to the measured position (standard deviation 1 cm), velocity (0.5 cm/s), angular velocity and orientation, as a real sensor would make. From these noisy values come the rotation matrix, the offset to the target in the drone's own axes (in metres for Batch 2; `HoverDrone` in `crazyflie_hover.py` handles this), the velocity in the drone's axes, and the previous command.
+4. The reward is computed from the true positions (lines 287-327): the bonus for staying in the air, the proximity bonus and the distance improvement, minus 1 if the flight ends (Section 2.2). The flight ends if the drone is below 5 cm or more than 2 m further from the target than where it started (lines 313-318).
+5. Back in `CrazyflieHoverEnv.step()`, all results are copied from the GPU in one transfer, the flight is cut off after 500 steps, and the trainer receives the observation, the reward, whether the flight ended, and the position.
+
+The sections below follow the agent's side, in `tdmpc2_jax/tdmpc2.py` and `tdmpc2_jax/world_model.py`.
 
 **One decision: `TDMPC2.act()` (line 88).**
 
@@ -795,4 +832,8 @@ Nothing in this guide authorises or prepares a flight on its own; every hardware
 
 # Appendix B. Jobs and code versions
 
-*Completed with the final version.*
+Every Batch 2 job ran on Narval under the account `def-cbelling-ab`, on a 2/7 slice of an A100 GPU (except the copy job, which needs no GPU). Each job prints the git commit it ran in the first line of its log (`$SCRATCH/tdmpc2/batch2/logs/`), and each training batch records its settings and commit in `batch_info.json`. All job numbers are also listed in `$SCRATCH/tdmpc2/batch2/job_ids.txt`. The table below comes directly from the scheduler's records (`sacct`).
+
+[JOBS_TABLE]
+
+The code versions, in order: `8edab5b` (Batch 2 launch: random starts, test starts, cluster jobs), `52873af` (resume with fresh randomness, used from R1 task 10 and C1 on), `785bfb2` (H2), `b86b66b` (horizon test), `3f9f21b` (smoothing test and reward pilot), `622b694` (R1 extension). Later commits changed only analysis scripts and documents. The training loop (`tdmpc2_jax/train.py`) last changed in `52873af`, the TD-MPC2 algorithm itself (`tdmpc2.py`, `world_model.py`) was not changed during Batch 2, and `train_hover.py` only gained the registrations of the H2 and reward-pilot environments (`785bfb2`, `3f9f21b`). The task and test code (`crazyflie_hover.py`, `hover_eval.py`, `eval_hover.py`) last changed at the launch, `8edab5b`.

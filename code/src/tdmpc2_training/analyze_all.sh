@@ -17,7 +17,7 @@ O=outputs/batch2
 PY=.venv/bin/python
 export JAX_PLATFORMS=cpu   # no GPU needed
 R1=$O/random_start_1M C1=$O/fixed_start_1M D=$O/random_start_small_1M H2=$O/randomized_small_1M
-SH=$O/sharp_small_1M
+SH=$O/sharp_small_1M R2=$O/random_start_2M
 B1=outputs/batch1_standard_1M B1S=outputs/batch1_small_narval
 
 # with FOLDER BATCH...: the batches in which at least one seed has FOLDER/summary.csv
@@ -33,6 +33,7 @@ has $C1 && run $A/analyze_batch2.py $C1 --compare $B1
 has $D && run $A/analyze_batch2.py $D --compare $(others $H2 $SH) $B1S
 has $H2 && has $D && run $A/analyze_batch2.py $H2 --compare $D
 has $SH && has $D && run $A/analyze_batch2.py $SH --compare $D
+with evaluation $R2 > /dev/null && has $R1 && run $A/analyze_batch2.py $R2 --compare $R1 $D
 
 SNAP=$(with snapshot_evaluation $R1 $C1 $D $H2 $SH)
 [ -n "$SNAP" ] && run $A/analyze_snapshots.py $SNAP --out $O/snapshot_summary

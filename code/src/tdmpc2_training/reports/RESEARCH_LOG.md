@@ -234,3 +234,14 @@ So anchoring the planner to the policy network's proposals removes most of its e
 - 3 m/s steady wind: no horizon gives any success (0%), and crashes stay low (0-3% in the area): the drone is pushed off target but kept in the air.
 
 **03:24: continuing a finished run elsewhere (prepared, not launched).** Question raised by the curves: is the published model just slower to learn, so that it would catch up with the small one given more steps? `cluster/copy_run_job.sh` copies a finished run (checkpoint with replay buffer, snapshots, history; not the tests) to a new batch folder, where `seed_job.sh` resumes it. Validated at home: a 1,500-step run copied and resumed to 3,000 steps continues from 1,500, extends its learning curve and adds snapshots next to the copied ones. Plan if R1 is still improving at 1M: seeds 0-2 to 2M in three 3 h pieces (1.35M, 1.7M, 2M), about 9 h per seed; it would finish around 13:30, after the handoff, and be reported as still running.
+
+**03:26: R1 extension launched (commit 622b694).** At 850-875k the R1 curves were still improving (success rising from about 20% at 600k to 30% at 800k; outside crashes falling from about 50% to 35%), so seeds 0-2 continue to 2M: copy 7669541 (after R1), then 7669542 -> 7669543 -> 7669544 (to 1.35M, 1.7M, 2M; final tests in the last piece) in `batch2/random_start_2M`. Cost about 3 x 9 h on GPU slices. Expected done about 13:30, after the handoff; to be cancelled before it starts if R1's final tests make it pointless.
+
+**03:30: experiment D final (small model, random starts, 11 seeds; job 7662437 all exit 0).** Success / crashes:
+- with planning: training area 78 ± 10% / 0%, held-out 83 ± 10% / 0%, outside 59 ± 9% / 3 ± 2%, Batch 1 starts 80 ± 10% / 0%;
+- policy network only: 9-12% success everywhere, no crashes;
+- 64x2 planner: as good as the full planner (+2 [-2, +7] points, paired).
+- vs Batch 1 small single-start agents: +59 [+35, +81] (training area), +72 [+48, +91] (held-out), +55 [+38, +72] (outside).
+- planner - policy (paired): +69 [+30, +96], +74 [+36, +98], +48 [+18, +72].
+- Seeds: 8 of 11 at 86-100% from the training area (median late error 4-8 cm); seeds 3, 8, 10 at 54%, 20%, 8% with no crashes (9-13 cm). The first three pilot seeds (95%) were among the good ones; the full set is lower, which is why the scale-up mattered.
+- Precision of full flights (training area + held-out): planner 7.4 ± 0.9 cm (horizontal 7.1, vertical 1.6), policy 20.6 ± 3.0 cm (horizontal 15.1, vertical 11.9; height offset +7.9 ± 4.2 cm, but its sign changes between snapshots), 64x2 7.8 ± 0.9 cm.
