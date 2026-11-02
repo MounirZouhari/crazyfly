@@ -359,6 +359,22 @@ def disturbance_lines(batches):
     if paired_rows:
         lines += ["", "Planning minus policy network only, success points, paired by seed (95% bootstrap interval):", "",
                   "| batch | " + " | ".join(header) + " |", "|---|" + "---:|" * len(header)] + paired_rows
+    # The first batch minus each other batch, same decision rule, for each condition (different agents: unpaired).
+    between_rows = []
+    main_name, main_seeds = batches[0]
+    for name, seeds in batches[1:]:
+        for rule in ["planner", "policy_only"]:
+            if not all(rule in s.disturb for s in main_seeds + seeds):
+                continue
+            cells = []
+            for kind, x in conditions:
+                m, lo, hi = bootstrap_ci([s.disturb_stat(rule, kind, x, "success") for s in main_seeds],
+                                         [s.disturb_stat(rule, kind, x, "success") for s in seeds])
+                cells.append(f"{m * 100:+.0f} [{lo * 100:+.0f}, {hi * 100:+.0f}]")
+            between_rows.append(f"| {main_name} - {name}, {RULES[rule]} | " + " | ".join(cells) + " |")
+    if between_rows:
+        lines += ["", f"{main_name} minus each other batch, success points (95% bootstrap interval over seeds):", "",
+                  "| comparison | " + " | ".join(header) + " |", "|---|" + "---:|" * len(header)] + between_rows
     # How crashed flights ended (column added on Nov 2; older results lack it).
     cause_rows = []
     for name, seeds in batches:

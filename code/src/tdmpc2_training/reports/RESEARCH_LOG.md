@@ -213,3 +213,24 @@ So anchoring the planner to the policy network's proposals removes most of its e
 **03:06: two follow-ups launched (commit 3f9f21b, home and Narval identical, no uncommitted changes).**
 - **Smoothing test** (`eval_smoothing.py`, eval only) on the 11 small and 11 R1 agents: jobs 7668917 (small 0-2), 7668921 (small 3-10, after 7662437), 7668922 (R1, after 7659438).
 - **Sharp-reward pilot** (`config_batch2_sharp_small`, `crazyflie_hover_sharp.py`): 3 seeds x 1M of the small model, identical to D except an extra reward 0.01 exp(-d^2 / (2 x 0.05^2)) near the target. Tests the 03:00 hypothesis. Jobs 7668941 -> 7668942 (two 3 h pieces), snapshot evaluation 7668947. Validation: bonus values exact; observations, termination and physics identical to the plain task over 600 steps; reward = plain + bonus at every step; a 1,500-step training run with snapshots works. Prediction if the hypothesis holds: smaller final late error and less snapshot-to-snapshot drift than D, with crashes still near zero. Expected done about 07:15 (training) and 07:45 (snapshots).
+
+**03:13: first smoothing-test results (small model, 4 seeds, preliminary).** Training-area and held-out starts; success, then thrust jitter and steps at a limit:
+- instant motors: planner as trained 72%, 29.5%, 50%; averaged plan 72%, 23.6%, 1%; planner + 40 ms filter 73% (+2 ± 1 paired), 8.7%, 2%; policy only 25%, 7.2%, 2%.
+- 30 ms motor lag: no change for any variant.
+- 60 ms motor lag: planner 71%, averaged plan 72%, but planner + 40 ms filter 54% (-17 ± 8 paired): the filter's and the motors' lags add up.
+- **Reading so far:** the planner does not need its jumpy commands. Filtering them (or acting on the averaged plan) keeps the precision while making the commands as smooth as the policy network's, and the agents tolerate slow motors. The filter must be sized together with the real motor lag. Waiting for all 11 small seeds and the R1 agents.
+
+**03:20: learning curves at about 850k steps (R1, C1, D, H2; `random_start_1M/analysis/learning_curves_comparison.png`).**
+- R1 (published, random starts): crashes from training-area starts near 0 after about 300k, from the held-out block after about 400k; from outside starts still about 30% at 850k, falling slowly. Success (10 cm) only 20-30%.
+- C1 (published, single start): 40-60% crashes from training-area starts, 80-100% from the held-out block and outside, throughout.
+- D (small, random starts): crashes near 0 everywhere by 50-100k (about 5% outside); success 60-75%.
+- H2 (small, randomised physics): crashes like D; success more variable.
+- **Reading (mid-run):** random starts remove crashes for both sizes, but the small model learns much faster and is more precise at equal steps. The published model may need more than 1M steps, or a different learning rate, to match it. Final tests will tell.
+
+**03:25: follow-up tests on 8 of the 11 small random-start agents (D).**
+- **Model error (H1 check):** along the planner's flights the world model is as accurate or more accurate than along the policy network's (paired ratio 0.73 ± 0.10 training area, 0.70 ± 0.07 held-out, 1.4 ± 0.8 outside), and its 3-step latent error is about 1e-5, 15-30 times below the Batch 1 small agents (3e-4). No sign of exploitation where the data covers the situation.
+- **Planner variants:** restraining the planner now costs success (narrower search -10 ± 8, half the candidates from the policy -7 ± 6 points from the training area) instead of preventing crashes. Consistent with the above: nothing to exploit, so the full search is best.
+- **Horizon:** 5 steps beats the trained 3 (+15 ± 9 points from the training area, +9 ± 6 outside); 10 steps is no better in the area (-2 ± 15) and crashes more outside (14% vs 5%); 1 step is much worse (-44 ± 16). With an accurate model a slightly longer look-ahead helps; for the inaccurate Batch 1 pilot agent every change from 3 was worse.
+- 3 m/s steady wind: no horizon gives any success (0%), and crashes stay low (0-3% in the area): the drone is pushed off target but kept in the air.
+
+**03:24: continuing a finished run elsewhere (prepared, not launched).** Question raised by the curves: is the published model just slower to learn, so that it would catch up with the small one given more steps? `cluster/copy_run_job.sh` copies a finished run (checkpoint with replay buffer, snapshots, history; not the tests) to a new batch folder, where `seed_job.sh` resumes it. Validated at home: a 1,500-step run copied and resumed to 3,000 steps continues from 1,500, extends its learning curve and adds snapshots next to the copied ones. Plan if R1 is still improving at 1M: seeds 0-2 to 2M in three 3 h pieces (1.35M, 1.7M, 2M), about 9 h per seed; it would finish around 13:30, after the handoff, and be reported as still running.

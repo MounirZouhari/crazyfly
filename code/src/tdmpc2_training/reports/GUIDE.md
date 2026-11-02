@@ -171,7 +171,7 @@ The same discipline was applied to every later tool: each has its own check scri
 
 ## 4.7 How the night was run on Narval
 
-The experiments ran on the Digital Research Alliance cluster **Narval**, each on a 2/7 slice of an NVIDIA A100 GPU. Each training job records the exact code version (git commit) it ran. Jobs longer than 3 hours wait much longer in the queue, so long runs were split into pieces of at most 3 hours, each resuming from the previous one's checkpoint (with a fix so a resumed run does not replay the random starts it already used). Follow-up tests were chained with job dependencies, so each started by itself the moment its training finished. More than 150 jobs ran overnight without a failure.
+The experiments ran on the Digital Research Alliance cluster **Narval**, each on a 2/7 slice of an NVIDIA A100 GPU. Each training job records the exact code version (git commit) it ran. The R1 and C1 runs were submitted as single jobs of up to 10 hours, and waited about 50 minutes in the queue before starting. Jobs of at most 3 hours start almost at once, so the later runs (D, H2 and the reward pilot) were split into pieces of at most 3 hours, each resuming from the previous one's checkpoint (with a fix so a resumed run does not replay the random starts it already used). Follow-up tests were chained with job dependencies, so each started by itself the moment its training finished. More than 150 jobs ran overnight without a failure.
 
 # 5. Results, experiment by experiment
 
@@ -248,7 +248,9 @@ The sections go from the past to the present. Sections 5.2 to 5.4 look back at B
 
 **How it was tested.** Eleven seeds of the small settings (Section 2.4), trained and tested exactly like R1. Because the small model trains faster, each run was split into two jobs of 3 hours, the second resuming from the first's checkpoint. Three seeds were run first as a pilot; the other eight were launched after the pilot had shown at 200k steps that learning worked.
 
-*Results pending.*
+**The result.** [D_TABLE]
+
+**What it means.** [D_MEANING]
 
 ## 5.8 With and without planning: where the precision comes from
 
@@ -393,7 +395,11 @@ This chapter answers the ten questions that were drawn from Professor Bellinger'
 
 ## Q1. Why did short TD-MPC2 runs vary so much between seeds?
 
-*Completed with the final results.*
+**Short answer.** Because at 50k steps the runs had not finished learning, and each seed was caught at a different stage. The differences were real properties of the trained agents, not noise of the tests.
+
+**Evidence (established, Sections 5.2 and 5.3).** Re-flying all 33 Batch 1 agents 20 times each showed that 93-94% of the variation between flights of the small agents comes from differences between the agents (intraclass correlation 0.93 and 0.94); re-testing the same agent changes its result by much less than changing the seed. The learning curves of these runs were still improving at 50k steps, and the three published-size runs trained to 1M steps all converged to between 5.7 and 8.6 cm from their training start. The professor's suspicion that the runs were too short was right.
+
+**What to say if asked more.** The training losses do not show when a run is good or bad (Section 5.3), so the seeds cannot be told apart from their logs; they have to be flown. This is why Batch 2 keeps snapshots and chooses checkpoints on separate validation starts.
 
 ## Q2. Does longer training resolve the variability?
 
@@ -479,17 +485,18 @@ A **test** of a saved agent (any of the `eval_*.py` scripts) rebuilds the agent 
 
 - **`crazyflie_hover.py`**: the bridge between the lab's simulator and the Gymnasium interface the trainer expects. It defines the action limits (`ACTION_LOW`, `ACTION_HIGH`), the Batch 2 start area (`START_AREA_LOW/HIGH`, `HELD_OUT_XY_LOW/HIGH`, `MIN_GOAL_DISTANCE`) and its sampler `sample_training_start()`. `HoverDrone` wraps the lab's environment and adds the option of the target offset in metres. `place_drone()` moves a freshly reset drone to any start. `CrazyflieHoverEnv` is the environment the trainer uses: `reset()` starts a flight (a random start when `random_starts` is on) and `step()` applies one action and returns the observation, reward and end flags.
 - **`crazyflie_hover_dr.py`**: `RandomizedHoverEnv`, the same environment with randomised physics in every flight (mass, motor strength, wind), for the H2 experiment.
+- **`crazyflie_hover_sharp.py`**: `SharpHoverEnv`, the same environment with one extra reward term concentrated within about 5 cm of the target (`sharp_bonus()`), for the reward pilot of Section 5.13.
 
 ## 7.4 Training
 
-- **`train_hover.py`**: the entry point. It registers the environments with Gymnasium (`CrazyflieHover-v0`, and `CrazyflieHoverRandomized-v0` for H2) and starts the trainer with a configuration chosen by `--config-name`.
+- **`train_hover.py`**: the entry point. It registers the environments with Gymnasium (`CrazyflieHover-v0`, `CrazyflieHoverRandomized-v0` for H2 and `CrazyflieHoverSharp-v0` for the reward pilot) and starts the trainer with a configuration chosen by `--config-name`.
 - **`tdmpc2_jax/`**: TD-MPC2 in JAX, copied from Shane Flandermeyer's open-source implementation (commit 5b05ff4, MIT licence in `UPSTREAM_LICENSE`) and adapted.
   - `train.py`: the training loop. It collects experience, stores it in the replay buffer, runs one learning update per step, records test flights every 25k steps, saves checkpoints and snapshots, and can resume an interrupted run (with fresh randomness).
   - `build.py`: builds an untrained agent from a configuration. Training and testing both use it, so saved weights always fit.
   - `tdmpc2.py`: the TD-MPC2 algorithm. `act()` encodes the observation and calls `plan()` (MPPI planning) or the policy network; `update()` performs one learning step of the world model, the value ensemble and the policy; `estimate_value()` scores imagined plans.
   - `world_model.py`: the networks (encoder, dynamics, reward, policy, value ensemble and its slowly updated target copy) and their optimisers.
   - `networks/`, `common/`, `data/`: building blocks (normalised linear layers, ensembles, the activation functions, the two-hot reward and value encoding, the replay buffer in `data/sequential_buffer.py`). `envs/` holds upstream code for other benchmarks that this project does not use.
-- **Configurations** (`tdmpc2_jax/*.yaml`, read by Hydra): `config_hover.yaml` (small settings, the base of all others), `config_hover_standard.yaml` (published settings), `config_batch2_random_start.yaml` (R1), `config_batch2_fixed_start.yaml` (C1), `config_batch2_random_start_small.yaml` (D), `config_batch2_randomized_small.yaml` (H2). `config.yaml` is the upstream default and is not used.
+- **Configurations** (`tdmpc2_jax/*.yaml`, read by Hydra): `config_hover.yaml` (small settings, the base of all others), `config_hover_standard.yaml` (published settings), `config_batch2_random_start.yaml` (R1), `config_batch2_fixed_start.yaml` (C1), `config_batch2_random_start_small.yaml` (D), `config_batch2_randomized_small.yaml` (H2), `config_batch2_sharp_small.yaml` (reward pilot). `config.yaml` is the upstream default and is not used.
 - **`run_seeds.py`**: trains and tests a list of seeds on the home PC (used for Batch 1).
 
 ## 7.5 Testing trained agents
@@ -601,6 +608,33 @@ bash code/src/tdmpc2_training/analyze_all.sh
 ~/.local/bin/uv run --no-project --with reportlab python code/src/tdmpc2_training/reports/make_guide.py
 ```
 
+## 7.15 How TD-MPC2 works in the code: one decision and one learning step
+
+This section follows the code line by line through the two things TD-MPC2 does all the time: deciding on an action, and learning from experience. The line numbers refer to `tdmpc2_jax/tdmpc2.py` and `tdmpc2_jax/world_model.py` as of November 2, 2026.
+
+**One decision: `TDMPC2.act()` (line 88).**
+
+1. The 31 observation numbers go through the encoder (`WorldModel.encode()`, `world_model.py` line 232), which returns the latent state: 128 numbers for the small model, 512 for the published one.
+2. Without planning, the policy network turns the latent state into an action directly (`WorldModel.sample_actions()`, line 258), and the decision is over.
+3. With planning, `TDMPC2.plan()` (line 125) runs MPPI:
+   - It first rolls the policy network forward with the dynamics network (`WorldModel.next()`, line 239) to make 16 (small) or 24 (published) candidate plans of 3 actions each (`plan()`, lines 147-176).
+   - The other candidates (112 or 488) are drawn at random around the current best guess, which starts as the previous decision's plan shifted by one step (lines 181-201), and are clipped to the command limits.
+   - Every candidate is scored by `estimate_value()` (line 480): the rewards that the reward network predicts for its 3 actions, discounted by 0.99 per step, plus the discounted value of the latent state reached at the end, taken as the average of the value networks.
+   - The best 16 (small) or 64 (published) candidates are the elites. The sampling distribution is refitted to them, weighted by their scores, and the process repeats: 3 rounds for the small model, 6 for the published one (lines 203-226).
+   - When testing, the first action of the best elite is executed (lines 229-230). During training, an elite is drawn at random according to its score and noise is added to its first action (lines 232-244), which is how TD-MPC2 explores. This choice of a single candidate is why the planner's commands jump from step to step (Section 5.15).
+   - The weighted average of the elites (the averaged plan) is returned to start the next decision's search.
+4. The action, between -1 and 1, is converted to thrust in newtons and body moments (Gymnasium's `RescaleAction` in training, `FlightTester` in the tests).
+
+**One learning step: `TDMPC2.update()` (line 251).** After every environment step, the training loop (`train.py` line 277) draws a batch of short sequences of 3 consecutive steps (observation, action, reward, next observation) from the replay buffer (64 sequences for the small model, 256 for the published one) and updates every network once:
+
+1. **World model (consistency loss).** The first observation of each sequence is encoded, and the dynamics network predicts the next three latent states from the recorded actions. Each prediction is compared with the encoding of the observation that actually followed; the difference is the consistency loss (lines 290-304). This is what teaches the world model to predict, and it is the same quantity that `model_error.py` measures along test flights.
+2. **Reward (reward loss).** The reward network predicts the recorded rewards (lines 309-320). Rewards and values are not predicted as plain numbers: they are encoded as a probability over 101 bins on a logarithmic scale (a "two-hot" encoding), which makes learning robust to their size.
+3. **Values (value loss).** The target for each value network is the recorded reward plus 0.99 times the value of the next state, taken from slowly updated copies of the value networks (the smaller of two chosen at random, to avoid overestimating), with an action from the policy (lines 328-362). This is temporal-difference learning, the "TD" of TD-MPC2. The slow copies follow the trained networks by 1% per step (line 412).
+4. **Weighting.** Within each sequence, later steps count less (a factor 0.5 per step), because predictions further ahead are harder.
+5. **Policy.** The policy network is trained to choose actions with a high average value along the predicted latent states, with the values rescaled by a running estimate of their size, plus a very small bonus for randomness (entropy coefficient 0.0001) that keeps it exploring (lines 430-455).
+
+Everything except the policy is trained on the sum of the consistency, reward and value losses; the policy is trained separately against the updated value networks. The losses reported in the training logs (`tensorboard/`) are these quantities, which is why Section 5.3 could compare them with the test flights.
+
 # 8. Limitations
 
 Every result in this guide comes with conditions. This chapter collects them in one place, so that no result is stretched beyond what it supports. They fall into four groups: the simulation, the task, the statistics, and the comparisons.
@@ -630,7 +664,34 @@ The task is deliberately narrow: one drone, one target point one metre above the
 
 # 9. What to do next
 
-*This chapter is completed once all results are in.*
+## 9.1 For the next meeting with Professor Bellinger
+
+The results answer most of the questions he asked; Chapter 6 gives the answers in the order of his feedback, and `reports/SUPERVISOR_UPDATE.md` is a one-page version to send. Four figures carry most of the story: the map of outcomes per start (random against single-start training), the success-for-every-threshold figure (planning against the policy network alone), the disturbance figure, and the smoothing figure. It is worth asking him four questions, because the answers decide where the next weeks go:
+
+- Should the project move toward a real flight now (which first requires retraining with commands the Crazyflie firmware accepts, Section 9.3), or deepen the simulation study first?
+- Is it acceptable to change the lab's reward (Section 5.13), or should the task stay exactly as the previous students defined it?
+- Is a fair PPO comparison needed for the thesis? It would mean fixing the two PPO bugs and rerunning it on random starts.
+- Is the extra compute for longer runs of the published model worth it, given that the small model is faster to train and to run?
+
+## 9.2 Next experiments in simulation
+
+In order of expected value for the effort:
+
+1. **Confirm the reward pilot with more seeds** if it reduced the drift of precision (Section 5.13): 11 seeds of the small model, about 6 hours on Narval. If it did not, look at the value function near the target directly (a probe of the agent's value for hover positions a few centimetres off target would show whether it prefers the target at all).
+2. **Choose checkpoints on the validation starts** as the standard procedure (Section 5.12), so that a run's final result does not depend on where its precision happened to be at the last step.
+3. **Train with smoothing in the loop.** The smoothing test shows what a trained agent tolerates at test time; training with the command filter (or a penalty on command changes) would let the agent adapt to it, and would also give a smoother policy network.
+4. **Randomised physics at full scale** if the H2 pilot showed a benefit under disturbances (Section 5.11), and with the motor lag added to the randomised quantities.
+5. **Reduce crashes from far starts**, the remaining weakness: the outside starts crash far more often than the others. Options are a larger training area, or planning that avoids states where the world model is uncertain (penalising disagreement between the value networks).
+6. **Training speed**: parallel drones with fewer learning updates per collected step, measuring how many more steps learning then needs. This must be reported as a variant of TD-MPC2, not as TD-MPC2.
+
+## 9.3 Toward a real Crazyflie
+
+Nothing in this guide authorises or prepares a flight on its own; every hardware step needs Professor Bellinger's approval, the lab's safety training and a written test plan (`reports/DEPLOYMENT_READINESS.md`). In order:
+
+1. **Firmware-compatible commands.** Retrain with collective thrust plus body-rate setpoints, with a model of the firmware's rate controller in the simulator, and repeat the Batch 2 tests. This is the largest single task, and it is required before anything else.
+2. **Identify the motors.** Measure, on a bench and under supervision, how fast the real motors follow a thrust command, then size the command filter of Section 5.16 against that measured lag instead of the assumed 30 and 60 ms.
+3. **Radio-only test.** With the motors never armed, read the real state estimate at 50 Hz, run the deployment adapter (`deploy_controller.py`), and record the decisions and the end-to-end delay and its jitter. Send nothing to the drone.
+4. **Tethered or caged hover** with a safety pilot, an emergency stop and low thrust limits, taking over from the firmware's own take-off and handing back for landing.
 
 # Appendix A. Glossary
 

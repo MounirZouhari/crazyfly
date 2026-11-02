@@ -9,14 +9,15 @@
 # runs (evaluation_batch2_tests*, disturbances*, model_error, planner_variants,
 # horizon_test, smoothing_test) into the existing outputs/batch1_* folders.
 set -e
-BATCHES="random_start_1M fixed_start_1M random_start_small_1M randomized_small_1M sharp_small_1M"
+BATCHES="random_start_1M fixed_start_1M random_start_small_1M randomized_small_1M sharp_small_1M random_start_2M"
 FILES=(--include='*/' --include='learning_curve.csv' --include='batch_info.json' --include='.hydra/***'
        --include='evaluation*/***' --include='disturbances*/***' --include='snapshot_evaluation*/***'
        --include='model_error*/***' --include='planner_variants/***' --include='horizon_test/***'
        --include='smoothing_test/***' --include='gpu_usage.csv' --include='tensorboard/***' --include='*.log' --exclude='*')
 mkdir -p outputs/batch2
 for batch in $BATCHES; do
-  rsync -am "${FILES[@]}" narval:/scratch/mounirz/tdmpc2/batch2/$batch/ outputs/batch2/$batch/
+  rsync -am "${FILES[@]}" narval:/scratch/mounirz/tdmpc2/batch2/$batch/ outputs/batch2/$batch/ 2>/dev/null \
+    || echo "  $batch: not on Narval yet"
 done
 rsync -am narval:/scratch/mounirz/tdmpc2/batch2/profiling/ outputs/batch2/profiling_narval/
 rsync -am narval:/scratch/mounirz/tdmpc2/batch2/parallel_projection/ outputs/batch2/parallel_projection_narval/ || true
