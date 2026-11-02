@@ -142,12 +142,12 @@ class Seed:
         raise ValueError(stat)
 
 
-def load_batch(batch_dir):
+def load_batch(batch_dir, require_final=True):
     batch1 = batch_dir.name.startswith("batch1")   # Batch 1 folders keep their original names
     seeds, missing = [], []
     for run_dir in sorted(batch_dir.glob("seed_*")):
         seed = Seed(run_dir, batch1=batch1)
-        if "planner" in seed.final:
+        if "planner" in seed.final or (not require_final and seed.curve):
             seeds.append(seed)
         else:
             missing.append(run_dir.name)
@@ -228,6 +228,40 @@ def plot_final(seeds, median, title, out_path):
         ax.spines[["top", "right"]].set_visible(False)
     axes[0].legend(frameon=False, fontsize=8)
     fig.suptitle(f"{title}: final agents, {len(seeds)} seeds (grey dots: one seed each)", fontsize=12)
+    fig.tight_layout()
+    fig.savefig(out_path, dpi=150)
+    plt.close(fig)
+
+
+def plot_curve_comparison(batches, out_path):
+    """Learning curves of several Batch 2 batches side by side: crash and success share per group."""
+    batches = [(name, seeds) for name, seeds in batches if any(s.curve for s in seeds)]
+    groups = ["train_area", "held_out", "outside"]
+    fig, axes = plt.subplots(2, len(groups), figsize=(5 * len(groups), 7), sharex=True, sharey=True)
+    colors = plt.cm.tab10(np.arange(len(batches)))
+    for j, (name, seeds) in enumerate(batches):
+        steps = np.array(sorted(set().union(*(s.curve.keys() for s in seeds))))
+        for i, group in enumerate(groups):
+            for row, stat in enumerate(["crash", "success"]):
+                curves = np.array([[s.curve_stat(step, group, stat) for step in steps] for s in seeds])
+                mean = np.nanmean(curves, axis=0)
+                se = (np.nanstd(curves, axis=0, ddof=1) / np.sqrt(np.sum(~np.isnan(curves), axis=0))
+                      if len(curves) > 1 else np.zeros_like(mean))
+                axes[row, i].fill_between(steps / 1000, mean - se, mean + se, color=colors[j], alpha=0.2, lw=0)
+                axes[row, i].plot(steps / 1000, mean, color=colors[j], lw=2,
+                                  label=f"{name} ({len(seeds)} seeds)" if (row, i) == (0, 0) else None)
+    for i, group in enumerate(groups):
+        axes[0, i].set_title(GROUP_TITLES[group], fontsize=10)
+        axes[1, i].set_xlabel("training steps (thousands)")
+    axes[0, 0].set_ylabel("crash share")
+    axes[1, 0].set_ylabel("success share")
+    for ax in axes.flat:
+        ax.set_ylim(-0.03, 1.03)
+        ax.grid(alpha=0.3)
+        ax.spines[["top", "right"]].set_visible(False)
+    axes[0, 0].legend(frameon=False, fontsize=8)
+    fig.suptitle("Test flights during training (mean ± SE across seeds; 8 / 6 / 6 flights per seed and point)",
+                 fontsize=11)
     fig.tight_layout()
     fig.savefig(out_path, dpi=150)
     plt.close(fig)
@@ -367,7 +401,17 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("batch_dir", type=Path, help="Batch 2 folder with seed_XX runs")
     parser.add_argument("--compare", type=Path, nargs="*", default=[], help="other batches to compare with")
+    parser.add_argument("--curves-only", action="store_true",
+                        help="only compare learning curves (works while runs are still training)")
     args = parser.parse_args()
+
+    if args.curves_only:
+        batches = [(d.name, load_batch(d, require_final=False)[0]) for d in [args.batch_dir] + args.compare]
+        out_dir = args.batch_dir / "analysis"
+        out_dir.mkdir(exist_ok=True)
+        plot_curve_comparison(batches, out_dir / "learning_curves_comparison.png")
+        print(f"Saved {out_dir / 'learning_curves_comparison.png'}")
+        return
 
     seeds, _ = load_batch(args.batch_dir)
     median = median_seed(seeds)
@@ -381,6 +425,8 @@ def main():
     plot_final(seeds, median, name, out_dir / "final_by_group.png")
     if len(batches) > 1:
         plot_comparison(batches, out_dir / "comparison.png")
+        if sum(any(s.curve for s in batch_seeds) for _, batch_seeds in batches) > 1:
+            plot_curve_comparison(batches, out_dir / "learning_curves_comparison.png")
     if any(all(s.disturb for s in batch_seeds) for _, batch_seeds in batches):
         plot_disturbances(batches, out_dir / "disturbances.png")
     write_summary(name, args.batch_dir, seeds, median, batches, out_dir / "summary.md")

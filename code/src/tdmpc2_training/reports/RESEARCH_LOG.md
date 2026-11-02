@@ -96,3 +96,17 @@ the full experiment descriptions are in `../EXPERIMENTS.md`.
   - The 1-drone projection (32) matches the measured home training speed (31 steps/s), which validates the cost model.
 - Conclusion: TD-MPC2's per-sample costs (planning for every drone, one update per step) scale with the number of drones, unlike PPO, whose updates are shared over large batches. Larger speedups need fewer updates per sample or cheaper planning during data collection. Both change the algorithm and need their own sample-efficiency check.
 - A Narval run of the same benchmark is next.
+
+**23:45-00:05.**
+- **Model error, validation run:** `model_error.py` on one Batch 1 small agent (50k, seed 4), 3-step latent error:
+  - planner flights: training area 0.0003, held-out block 0.0005, outside 0.0009;
+  - policy-only flights from the same starts: 0.0003, 0.0003, 0.0006;
+  - reward error outside: 0.0055 planner vs 0.0022 policy;
+  - crashes outside: 21/30 planner vs 2/30 policy.
+  - This fits H1: the model is less accurate on new starts and the planner steers into its weak regions. One agent only.
+- **Submitted:** model error for all 25 Batch 1 runs (job 7663280); chained after R1, C1 and small (7663281-7663284); parallel benchmark on Narval (7663279). All 11 small seeds are in piece 1.
+- **Mid-run learning curves** (`outputs/batch2/midrun/random_start_1M/analysis/learning_curves_comparison.png`), R1 at about 325k, C1 300k, small 150k-450k:
+  - Random-start training generalises to the held-out block: R1 held-out crash share about 10% at 300k, close to its training-area level. The single-start control C1 crashes 40-60% from training-area starts and 70-100% from the held-out block.
+  - The small model leads at equal steps: about 0% crashes in the training area and held-out block from 50k, 0-20% outside. R1 is at about 50% outside at 325k.
+  - Small-model success is rising, but the points after 175k come from only 1-3 seeds, so they are noisy.
+  - To be confirmed by the final 128-flight evaluations.
