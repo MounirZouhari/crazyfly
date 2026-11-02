@@ -149,3 +149,16 @@ So anchoring the planner to the policy network's proposals removes most of its e
 - **Published size:** simulate 6.0 ms for any N; plan 6.4 ms (1 drone) to 475 ms (128); update 9.7 ms. Projected 45 steps/s with 1 drone, 68 with 8, 74 with 128 (1.6x).
 - **Small size:** plan 1.2 to 16.6 ms; update 3.5 ms. Projected 93, 223 and 271 steps/s (2.9x).
 - The 1-drone projections match the measured training speeds (46-49 and 88 steps/s), so the cost model holds.
+
+**00:35: health check.** 84 jobs completed, 25 running, none failed. Small pilot piece 1 took 104-112 min per 500k steps; piece 2 is running.
+
+**00:40-00:45: H2 pilot launched.**
+- **Hypothesis H2:** planning helps when the world model has trained on the relevant variation (interpolation) and hurts when it has not (H1, extrapolation).
+- **Setup:** `crazyflie_hover_dr.py` (new env id `CrazyflieHoverRandomized-v0`, registered lazily so existing runs are untouched). The small model with random starts, plus in every training flight: mass and inertia x1.0-1.15, motor strength x0.9-1.0, steady wind 0-3 m/s from a random direction. The agent does not observe these values.
+- **Validated:**
+  - the draws stay in range;
+  - the flight state matches the draws;
+  - the wind in training pushes the drone exactly as in the disturbance tests (0.417 m in 1 s at 3 m/s, both);
+  - a 1,500-step training run works.
+- **Launched:** 3 seeds x 1M in two 3 h pieces (7664888 then 7664889), with disturbance tests (7664892) and planner variants (7664893) chained.
+- **Comparison:** the same tests on the nominal-trained small agents. In-range disturbances: mass, motors, wind up to 3 m/s. Beyond the range: wind 4 m/s, gust 6 m/s, delays.
