@@ -69,3 +69,30 @@ the full experiment descriptions are in `../EXPERIMENTS.md`.
   - Open question: each learning-curve point is only 3 flights with one noise seed, so part of the fluctuation may be evaluation noise. This motivates the snapshot evaluation (many flights per snapshot).
 - **Literature checked** (`LITERATURE.md`): TD-MPC2, TD-MPC, MBPO (model exploitation), objective mismatch, Henderson 2018, Agarwal 2021, Molchanov 2019, Eschmann 2024, Peng 2018.
 - **Deployment readiness** written (`DEPLOYMENT_READINESS.md`). New `deploy_controller.py` builds the observation from Crazyflie-style state estimates and refuses to produce a firmware command; `check_deployment.py` tests it in closed loop against the simulator.
+
+**23:00-23:20.**
+- **200k check of R1 (11 seeds), pilot criterion "learning occurs": passed.** Crash share at 100k vs 200k:
+  - home 64% to 9%; training area 77% to 14%; held-out block 76% to 29%; outside 92% to 74%.
+  - Precision not reached yet (median late error about 0.35 m, almost no successes).
+- **C1 (single start) specialises.** Home error 0.12 m at 200k. Its held-out crash share went from 56% (150k) to 100% (200k), so generalisation peaks early and then declines. This is the "memorising" effect, now seen during training.
+- **Small model with random starts (3 seeds) learns much faster.** About 0% crashes in all groups by 100k; outside crash share 0-6% at 200-225k (big R1 at 200k: 74%); success 17-42%.
+  - Decision: scale the small model to 11 seeds (seeds 3-10, jobs 7662436 then 7662437, disturbance tests 7662438), for a credible small vs big comparison (Q9).
+  - Snapshot evaluation chained to every Batch 2 seed (jobs 7662439-7662442).
+- **Deployment checks pass** (`check_deployment.py`): the adapter's observation equals the simulator's over 300 closed-loop steps for a Batch 1 agent (offset divided by the start distance) and a Batch 2 agent (metres), with planning and without (largest difference 1.9e-6). Commands stay in the actuator limits. The first decision compiles for 20-44 s, so warm-up is required. The latencies in this run are inflated because the GPU was shared.
+- **A1 result (Q1): the Batch 1 seed spread was real, not evaluation noise.** 33 agents x 20 flights from the training start:
+  - small 50k (Narval): between-seed SD 0.32 m, within-seed SD 0.09 m, ICC 0.93;
+  - small 50k (home): ICC 0.94;
+  - published-size 50k: ICC 0.52 (many crashes, so flights vary a lot).
+  - Batch 1's 3-flight estimate per seed had an SE of about 0.05 m, small next to the 0.32 m spread.
+  - Home seed 0 is at 2.3 m on all 20 flights: its Batch 1 "collapse" is a property of the final agent.
+  - With the 50k learning curves still improving and the 1M runs converging, this supports "short runs had not finished training".
+
+**23:20-23:45: E, parallel drones (Q5), home RTX 3060, published settings (`bench_parallel.py`).**
+- Simulating N drones in one batch costs 8-10 ms for any N from 1 to 128, so the physics parallelises perfectly.
+- Planning grows with N: 10.6 ms for 1 drone, 57 ms for 8, 195 ms for 32, 735 ms for 128.
+- One learning update (batch 256) takes 12.4 ms.
+- Projected training speed with TD-MPC2's default of one update per simulated step: 32 steps/s with 1 drone, 49 with 8, 55 with 128, so at most about 1.7x faster.
+  - With 1 update per 8 steps (a different algorithm): up to 136 steps/s.
+  - The 1-drone projection (32) matches the measured home training speed (31 steps/s), which validates the cost model.
+- Conclusion: TD-MPC2's per-sample costs (planning for every drone, one update per step) scale with the number of drones, unlike PPO, whose updates are shared over large batches. Larger speedups need fewer updates per sample or cheaper planning during data collection. Both change the algorithm and need their own sample-efficiency check.
+- A Narval run of the same benchmark is next.
