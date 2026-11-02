@@ -14,6 +14,30 @@ The chapters build on each other. Chapter 2 explains the ideas: reinforcement le
 
 A few conventions are used throughout. A **flight** is one test of a trained drone controller, lasting 10 simulated seconds. A flight is a **success** when the drone flies the full 10 seconds and its average distance to the target over the last 2 seconds (the **late error**) is below 10 cm. A flight is a **crash** when it ends early, either because the drone touched the ground or because it flew too far away. Most results are given as a **mean ± standard error** across several independently trained controllers (**seeds**); the standard error says how precisely the mean is known. Where a difference between two methods matters, a **95% confidence interval** is given in square brackets: if the interval does not contain zero, the difference is very unlikely to be due to chance alone.
 
+## 1.1 The experiments and their names
+
+Every Batch 2 experiment has a short name, used throughout the guide. A **step** is one decision of the drone (0.02 s of simulated flight); **1M** means one million steps of training, about 5.5 hours of simulated flying. The **published** model uses TD-MPC2's settings from its paper (5.0 million weights); the **small** model is a reduced version (0.39 million weights) that trains and plans faster.
+
+| Name | Model | Where training flights start | Seeds | Steps | Purpose | Folder in `outputs/batch2/` |
+|---|---|---|---:|---:|---|---|
+| Batch 1 | both | always the same start, (0, 0, 0.2) | 11 (3 published at 1M) | 50k (1M) | the "before" picture | `outputs/batch1_*` |
+| **R1** | published | a new random start every flight | 11 | 1M | the main experiment | `random_start_1M` |
+| **C1** | published | always the Batch 1 start | 3 | 1M | control for R1: is it the random starts that matter? | `fixed_start_1M` |
+| **D** | small | random starts | 11 | 1M | R1 with the small model | `random_start_small_1M` |
+| **H2** | small | random starts, plus random mass, motor strength and wind | 3 | 1M | pilot: does varied physics help planning? | `randomized_small_1M` |
+| reward pilot | small | random starts, extra reward near the target | 3 | 1M | pilot: does a sharper reward steady the precision? | `sharp_small_1M` |
+| R1 to 2M | published | random starts | 3 | 2M | is the published model just slower? (running) | `random_start_2M` |
+
+## 1.2 The results in one page
+
+- **Random starts work** (Sections 5.5 to 5.7). Trained from one start, TD-MPC2 crashes in most flights that start elsewhere (35-92% for the published single-start agents). Trained from random starts, it almost never crashes inside the area and does as well from a block of starts it never trained from. The control C1 shows that the random starts are what makes the difference.
+- **The best controllers** (Section 5.12), choosing each run's checkpoint on separate validation starts: the small model with planning succeeds in 97% of the flights from the training area, 91% from the held-out block and 70% from outside; the published model's policy network alone, without any planning, in 90%, 81% and 59%, with no crash inside the area, at 0.3 ms per decision.
+- **At 1M steps the small model beats the published one** (78% against 46% with planning from the training area), but the published model is still improving; its continuation to 2M steps is running (Section 5.18).
+- **When planning helps** (Sections 5.8 and 5.9, question Q7): planning turns the small model's imprecise policy network (21 cm) into a precise controller (7 cm), because its world model is accurate where it is used. It hurts where the planner can find the world model's errors: single-start agents away from their start, and the published model's hard search, which loses to its own policy network.
+- **Disturbances** (Section 5.10, Q8): the small agents with planning shrug off extra mass, weaker motors and command delay (72-77% success); wind of 2 m/s or more defeats every agent, and in strong wind planning crashes more than the policy network.
+- **Two pilots gave negative results** (Sections 5.11 and 5.13): training on varied physics cost most of the precision, and a sharper reward near the target, although learned, did not stop the precision from drifting between checkpoints.
+- **For a real drone** (Sections 5.15, 5.16 and Q10): the planner's commands jump from step to step; a 40 ms filter (small model) or acting on the planner's averaged plan (both models) fixes it in simulation. The agents' commands are not ones the Crazyflie firmware accepts, so retraining is needed before any flight; nothing was flown.
+
 # 2. The ideas behind the project
 
 ## 2.1 Reinforcement learning in one page
@@ -171,7 +195,7 @@ The same discipline was applied to every later tool: each has its own check scri
 
 ## 4.7 How the night was run on Narval
 
-The experiments ran on the Digital Research Alliance cluster **Narval**, each on a 2/7 slice of an NVIDIA A100 GPU. Each training job records the exact code version (git commit) it ran. The R1 and C1 runs were submitted as single jobs of up to 10 hours, and waited about 50 minutes in the queue before starting. Jobs of at most 3 hours start almost at once, so the later runs (D, H2 and the reward pilot) were split into pieces of at most 3 hours, each resuming from the previous one's checkpoint (with a fix so a resumed run does not replay the random starts it already used). Follow-up tests were chained with job dependencies, so each started by itself the moment its training finished. More than 150 jobs ran overnight without a failure.
+The experiments ran on the Digital Research Alliance cluster **Narval**, each on a 2/7 slice of an NVIDIA A100 GPU. Each training job records the exact code version (git commit) it ran. The R1 and C1 runs were submitted as single jobs of up to 10 hours, and waited about 50 minutes in the queue before starting. Jobs of at most 3 hours start almost at once, so the later runs (D, H2 and the reward pilot) were split into pieces of at most 3 hours, each resuming from the previous one's checkpoint (with a fix so a resumed run does not replay the random starts it already used). Follow-up tests were chained with job dependencies, so each started by itself the moment its training finished. By 09:00 the next morning, 294 job tasks had completed and none had failed (Appendix B).
 
 # 5. Results, experiment by experiment
 
@@ -179,7 +203,7 @@ The experiments ran on the Digital Research Alliance cluster **Narval**, each on
 
 Every section follows the same pattern: the question, how it was tested, what came out, and what it means. Tables give **success / crash** shares as mean ± standard error across seeds; each seed is first averaged over its own flights, so every seed counts equally. Differences between two decision rules are **paired**: the same agents, the same starts and the same sensor noise, so that only the decision rule differs. Where a difference matters, its 95% bootstrap confidence interval is given in square brackets.
 
-The sections go from the past to the present. Sections 5.2 to 5.4 look back at Batch 1 with new tests. Sections 5.5 to 5.8 present the main Batch 2 results: learning to hover from anywhere. Sections 5.9 to 5.14 explain when and why the world model helps or hurts, and what limits the precision. Sections 5.15 and 5.16 look at how the drone flies, beyond success and crashes, which matters for a real drone. Section 5.17 covers speed.
+The sections go from the past to the present. Sections 5.2 to 5.4 look back at Batch 1 with new tests. Sections 5.5 to 5.8 present the main Batch 2 results: learning to hover from anywhere. Sections 5.9 to 5.14 explain when and why the world model helps or hurts, and what limits the precision. Sections 5.15 and 5.16 look at how the drone flies, beyond success and crashes, which matters for a real drone. Section 5.17 covers speed, and Section 5.18 the continuation of the published model to 2M steps, still running at the time of writing.
 
 ## 5.2 Was the Batch 1 spread between seeds real? (A1)
 
@@ -232,7 +256,31 @@ The sections go from the past to the present. Sections 5.2 to 5.4 look back at B
 
 **How it was tested.** Eleven seeds of TD-MPC2 with the published settings were trained for 1M steps each, every training flight starting at a new random position in the training area (Section 4.1). During training, 21 test flights every 25k steps recorded the learning curves. At the end, every agent flew the 128 fixed test flights (Section 4.3) three times: with planning as trained, with the policy network only, and with a small 64×2 planner, all with the same sensor noise.
 
-*Results pending.*
+**The result.** All 11 runs finished (about 7 hours each). Success / crashes from each group of test starts (mean ± standard error across the 11 seeds):
+
+| Decision rule | Training area | Held-out block | Outside | Batch 1 starts |
+|---|---:|---:|---:|---:|
+| with planning (as trained) | 46 ± 8% / 0 ± 0% | 39 ± 9% / 2 ± 1% | 20 ± 6% / 26 ± 5% | 39 ± 10% / 0 ± 0% |
+| policy network only | 60 ± 11% / 0 ± 0% | 64 ± 13% / 0 ± 0% | 40 ± 10% / 6 ± 2% | 65 ± 11% / 0 ± 0% |
+| small 64×2 planner | 58 ± 9% / 0 ± 0% | 46 ± 12% / 0 ± 0% | 32 ± 7% / 9 ± 2% | 57 ± 8% / 0 ± 0% |
+| single start, C1 (3 seeds), planning | 26 ± 7% / 35 ± 10% | 4 ± 3% / 82 ± 11% | 0 ± 0% / 92 ± 4% | 41 ± 5% / 52 ± 5% |
+| Batch 1 published 1M (3 seeds), planning | 20 ± 6% / 66 ± 3% | 2 ± 2% / 91 ± 9% | 2 ± 1% / 87 ± 5% | 20 ± 7% / 59 ± 4% |
+
+![Success of the final agents with planning, on the same test starts for every experiment (mean ± standard error across seeds). R1 (blue) against its single-start control C1 (orange), the small random-start agents D (green), the randomised-physics pilot H2 (red) and the Batch 1 published 1M agents (purple).](code/src/tdmpc2_training/reports/figures/r1_comparison.png)
+
+Compared with the single-start control C1, random starts raise success with planning by 20 points from the training area [+1, +39], 34 from the held-out block [+17, +51] and 20 from outside [+9, +32], and remove the crashes inside the area (0-2% against 35-82%). The map below shows the same thing start by start.
+
+![Every test start seen from above, coloured by the share of seeds that succeeded from it (green: most seeds; red: none; black ring: most seeds crashed). Top: R1, trained from random starts; bottom: C1, trained from the single Batch 1 start. Left: with planning; right: policy network only. Blue square: training area; orange corner: held-out block; star: target.](code/src/tdmpc2_training/reports/figures/start_outcomes_R1_C1.png)
+
+Three further results were not expected:
+
+- **R1 is much less precise than the small model.** With planning, the small random-start agents (Section 5.7) do better by 32 points from the training area [+5, +57], 44 from the held-out block and 39 from outside. Most R1 seeds end 9 to 19 cm from the target, just outside the 10 cm line (median late error 6.6 to 18.7 cm across seeds).
+- **R1 is still learning at 1M steps.** Its snapshots (Section 5.12) rise steadily: average test success from the training area 26% at 600k, 34% at 900k and 42% at 1M, with the typical final error falling from about 20 to 13 cm. The small model, by contrast, reached its level by about 400k steps. This is why seeds 0 to 2 of R1 were continued to 2M steps (Section 5.18).
+- **For R1, planning is worse than the policy network alone.** The paired differences are -15 points from the training area [-37, +10], -25 from the held-out block [-47, -1] and -20 from outside [-40, 0]; outside the area, the planner crashes in 26% of the flights and the policy network in 6%. The small 64×2 search is also better than the full 512×6 search (+12 points from the training area and outside). A stronger search doing worse is the signature of model exploitation (Section 5.9).
+
+![The learning curves of R1: test flights every 25k steps during training (left: mean across seeds; right: every seed). Success is still rising at 1M steps in every group.](code/src/tdmpc2_training/reports/figures/r1_learning_curves.png)
+
+**What it means.** The professor's suggestion works for the published TD-MPC2 too: trained from random starts, it no longer crashes inside the area and it carries over to the held-out block. But at 1M steps it is neither converged nor precise, and its own planner holds it back. The policy network alone is the better way to use these agents, and, at the right checkpoint, a very good one (Section 5.12: 90% from the training area with no crashes).
 
 ## 5.6 The single-start control (C1)
 
@@ -240,7 +288,17 @@ The sections go from the past to the present. Sections 5.2 to 5.4 look back at B
 
 **How it was tested.** Three seeds, trained and tested exactly like R1.
 
-*Results pending.*
+**The result.**
+
+| Decision rule | Training area | Held-out block | Outside | Batch 1 starts |
+|---|---:|---:|---:|---:|
+| with planning (as trained) | 26 ± 7% / 35 ± 10% | 4 ± 3% / 82 ± 11% | 0 ± 0% / 92 ± 4% | 41 ± 5% / 52 ± 5% |
+| policy network only | 47 ± 21% / 15 ± 1% | 18 ± 11% / 54 ± 18% | 0 ± 0% / 98 ± 1% | 39 ± 15% / 28 ± 6% |
+| small 64×2 planner | 41 ± 12% / 30 ± 13% | 12 ± 11% / 69 ± 16% | 2 ± 1% / 90 ± 5% | 39 ± 14% / 44 ± 3% |
+
+C1 is indistinguishable from the Batch 1 published 1M agents: with planning, the differences are +6 points from the training area [-9, +21], +2 from the held-out block and -2 from outside. It also shows the same pattern: planning loses to the policy network alone from the training area (-21 points) and crashes more, the planner's flights go where the world model is more wrong (paired ratio 1.68 ± 0.35), and restraining the search reduces crashes (Section 5.9).
+
+**What it means.** Giving the target offset in metres changes nothing; the whole improvement of R1 over Batch 1 comes from the random starts. C1 also repeats the Batch 1 result with a new set of seeds and the new tests, which makes that result more solid.
 
 ## 5.7 The small model (D)
 
@@ -281,11 +339,17 @@ The seeds differ in one way only. Eight of the eleven succeed in 86-100% of the 
 | published, single start, 1M (3) | planning | 10.2 ± 3.2 | 9.8 ± 2.8 | 1.6 ± 0.6 | +0.2 ± 0.4 |
 | | policy network only | 9.3 ± 2.4 | 8.9 ± 2.6 | 2.2 ± 0.4 | -1.1 ± 1.1 |
 
-[R1_PRECISION]
+| published, random starts, R1 (11) | planning | 12.7 ± 1.5 | 12.4 ± 1.4 | 1.6 ± 0.3 | +0.4 ± 0.2 |
+| | policy network only | 9.3 ± 1.4 | 8.5 ± 1.6 | 2.7 ± 0.4 | -0.2 ± 0.9 |
+| | 64×2 planner | 9.9 ± 1.1 | 9.8 ± 1.1 | 1.2 ± 0.2 | +0.1 ± 0.2 |
+| published, single start, C1 (3) | planning | 15.1 ± 1.7 | 14.4 ± 1.4 | 2.5 ± 0.4 | +0.2 ± 0.5 |
+| | policy network only | 9.3 ± 2.0 | 6.2 ± 1.5 | 5.7 ± 2.0 | -5.5 ± 2.2 |
+
+For the published-size agents the picture is reversed: the policy network alone is the more precise (9.3 cm against 12.7 cm for R1), and the planner's extra error is almost entirely horizontal (12.4 cm against 1.6 cm vertically). The smaller 64×2 search sits in between.
 
 ![Share of flights ending within any distance of the target, from 0 to 50 cm, with crashes counted as failures (training-area and held-out starts; mean ± standard error across seeds). The dotted line is the 10 cm used for success. A curve that rises early and reaches 100% means precise and safe; a curve that stays low means crashes.](code/src/tdmpc2_training/reports/figures/thresholds.png)
 
-**What it means.** For the random-start agents, planning cuts the typical final error from about 21 cm to about 7 cm, and it does so in both directions: the policy network alone is off by 15 cm horizontally and 12 cm vertically, the planner by 7 and 2. The policy network alone also holds a wrong height, and the snapshots show that this offset changes from one checkpoint to the next, sometimes above the target and sometimes below, so it is not a fixed bias. A plausible explanation, not tested here, is that in TD-MPC2 the policy network's main job is to propose candidates for the planner: it learns roughly where the good actions are, and the planner's search against the world model's predicted rewards supplies the last few centimetres. The threshold figure shows that the conclusion does not depend on the 10 cm threshold: for the random-start agents, the planner's curve is above the policy network's at every threshold until both reach 100%, which they do because neither crashes. For the single-start agents the picture is reversed: the planner's curve stops at about 20%, because the other flights crashed.
+**What it means.** For the random-start agents, planning cuts the typical final error from about 21 cm to about 7 cm, and it does so in both directions: the policy network alone is off by 15 cm horizontally and 12 cm vertically, the planner by 7 and 2. The policy network alone also holds a wrong height, and the snapshots show that this offset changes from one checkpoint to the next, sometimes above the target and sometimes below, so it is not a fixed bias. A plausible explanation, not tested here, is that in TD-MPC2 the policy network's main job is to propose candidates for the planner: it learns roughly where the good actions are, and the planner's search against the world model's predicted rewards supplies the last few centimetres. The threshold figure shows that the conclusion does not depend on the 10 cm threshold: for the random-start agents, the planner's curve is above the policy network's at every threshold until both reach 100%, which they do because neither crashes. For the single-start agents the planner's curve stops at about 20 to 40%, because the other flights crashed. For R1, the policy network's curve and the 64×2 planner's are above the full planner's at every threshold above about 5 cm: the published model's full search costs precision, not safety.
 
 ## 5.9 Why planning hurts single-start agents and helps random-start ones (H1)
 
@@ -323,7 +387,19 @@ All three seeds improved in the same way with both restrictions, which is why th
 - Restraining the planner no longer prevents anything; it only costs precision: the narrower search loses 7 ± 6 points of success from the training area, and half the candidates from the policy network 5 ± 5 points.
 - The few crashes that remain, from starts outside the area (13 of 330 flights), are again preceded by a sharp rise of the model error (about 35 times its level in completed flights): where the model is wrong, the planner still fails.
 
-[R1_H1]
+**The published model trained on random starts (R1) sits in between.** Its training data covers the area, but its planner still behaves as if it found something to exploit:
+
+| R1 (11 seeds) | Training area | Held-out block | Outside |
+|---|---:|---:|---:|
+| planner / policy model error (paired) | 1.17 ± 0.07 | 1.49 ± 0.08 | 2.00 ± 0.14 |
+| narrower search, change in success / crashes | +10 ± 3 / -1 ± 0 | +11 ± 6 / -3 ± 2 | +8 ± 4 / -11 ± 3 |
+| half the candidates from the policy | +13 ± 8 / -1 ± 0 | +8 ± 9 / -3 ± 2 | +12 ± 4 / -16 ± 4 |
+
+The model error along the planner's flights is slightly higher than along the policy network's inside the area and twice as high outside, it rises 4.4 times in the last half second before a crash, and both restraints of the search improve success and reduce the crashes outside (from 26% to 15% and 10%). The world model errors are measured in each agent's own latent space, so their size cannot be compared between the published and the small model; the reward predictions can, and they are about as accurate for R1 as for the small agents inside the area (mean error 0.0005 against 0.0004 per step) but almost three times worse outside (0.0027 against 0.0010).
+
+![The world model's 3-step prediction error along the Batch 2 test flights, with planning (blue) and with the policy network only (orange). Small random-start agents (third panel): the planner's flights are where the model is most accurate. Single-start agents (second and fourth): the planner goes where the model is more wrong. R1 (first): in between, with the largest gap outside the area. Errors are in each agent's own latent space, so compare the two lines within a panel, not across panels.](code/src/tdmpc2_training/reports/figures/model_error_batch2.png)
+
+Why would the published model's planner exploit errors where the small model's does not, on the same data? The tests here do not settle it, but two differences are candidates. The published planner searches much harder (512 candidates refined over 6 rounds, against 128 over 3), and a harder search is more likely to find a spot where the model is optimistically wrong; the 64×2 search doing better than the full one fits this. And the published model had not finished learning (Section 5.5), so its world model may simply be less accurate at 1M steps; the 2M continuation (Section 5.18) speaks to this.
 
 **What it means, overall.** The world model is not good or bad in itself; what matters is whether it is used where it was trained. Off its data, the planner seeks out the model's mistakes and crashes; on its data, the planner turns an accurate model into precise control. This is the answer to the professor's question of when and why the model helps (Chapter 6, Q7).
 
@@ -343,7 +419,41 @@ All three seeds improved in the same way with both restrictions, which is why th
 
 The wind acts through the simulator's air model, so it pushes on the drone the way moving air would. Hovering already needs 76% of the maximum thrust, which is why the extra mass and the motor weakening stay small: with 30% more mass, the drone would need 99% of its maximum thrust just to stay in the air. For each crashed flight the test also records how it ended: hitting the ground, or being carried out of bounds.
 
-*Results pending.*
+**The result.** Success with planning / with the policy network only, from the 50 training-area starts (mean across seeds):
+
+| Condition | Small, random starts (D, 11) | Published, random starts (R1, 11) | Published, single start (C1, 3) |
+|---|---:|---:|---:|
+| none | 77% / 9% | 43% / 60% | 29% / 45% |
+| wind 1 m/s | 60% / 18% | 36% / 63% | 38% / 33% |
+| wind 2 m/s | 1% / 0% | 1% / 1% | 0% / 0% |
+| gust 2 m/s | 66% / 9% | 37% / 57% | 23% / 40% |
+| gust 4 m/s | 15% / 0% | 7% / 23% | 1% / 1% |
+| mass ×1.05 / ×1.10 / ×1.15 | 76 / 74 / 72% against 9-10% | 32 / 20 / 15% against 57 / 54 / 51% | 23 / 21 / 15% against 44 / 43 / 41% |
+| motors ×0.95 / ×0.90 | 76 / 73% against 9 / 10% | 33 / 25% against 57 / 54% | 24 / 23% against 44 / 41% |
+| delay 20 / 40 ms | 77 / 76% against 9% | 33 / 25% against 60% | 28 / 17% against 46 / 44% |
+
+Crashes, with planning / policy network only:
+
+| Condition | D | R1 | C1 |
+|---|---:|---:|---:|
+| none | 0% / 0% | 0% / 0% | 39% / 16% |
+| wind 2 m/s | 0% / 0% | 4% / 0% | 48% / 27% |
+| wind 3 m/s | 1% / 0% | 32% / 0% | 94% / 87% |
+| wind 4 m/s | 41% / 29% | 87% / 37% | 100% / 99% |
+| gust 6 m/s | 67% / 21% | 80% / 67% | 100% / 100% |
+| mass ×1.15 | 2% / 0% | 3% / 0% | 62% / 19% |
+
+![Success under each disturbance, from the 50 training-area starts (mean ± standard error across seeds). Solid lines: with planning; dashed: policy network only. Green: small random-start agents (D); blue: R1; orange: C1; red: the randomised-physics pilot H2 (Section 5.11); purple: Batch 1 published 1M.](code/src/tdmpc2_training/reports/figures/disturbances_main.png)
+
+**What it means.**
+
+- **Mass, motors and delay are easy for the small random-start agents.** With planning they keep 72-77% success under every change of mass, motor strength and command delay tested, 61-68 points above their policy network alone. These are the disturbances a real Crazyflie meets every day (a deck, a tired battery, the radio), so this is good news.
+- **The published agents lose more.** R1's planner drops from 43% to 15-33% under the same changes, while its policy network barely moves (51-60%). The planner of the published model is the fragile part, consistent with Section 5.9.
+- **Wind is the real limit.** At 1 m/s the small agents still succeed in 60% of the flights; from 2 m/s on, no agent stays within 10 cm, because none of them has ever felt wind and none can tell from one observation that it is being pushed. Up to 3 m/s the small agents are pushed off target but stay in the air (at most 1% crashes); the published planner already crashes in a third of the flights at 3 m/s, its policy network in none.
+- **Beyond the limit, planning crashes more.** At 4 m/s wind and in 6 m/s gusts, every agent's planner crashes more often than its policy network (for D: 41% against 29%, and 67% against 21%). Strong wind puts the drone in states the world model never saw, which is exactly where Section 5.9 says the planner goes wrong.
+- **Single-start agents** crash often even without disturbance, and every disturbance makes it worse.
+
+So, to the professor's question: planning makes the small random-start agents more robust than their policy network to every moderate disturbance, because it keeps their precision; it does not protect any agent against strong wind, and there it makes crashes more likely.
 
 ## 5.11 Training on varied physics (H2)
 
@@ -351,7 +461,29 @@ The wind acts through the simulator's air model, so it pushes on the drone the w
 
 **How it was tested.** Three seeds of the small model were trained like D, except that every training flight also drew, at random, a mass and inertia between ×1.0 and ×1.15, a motor strength between ×0.9 and ×1.0, and a steady wind of 0 to 3 m/s from a random direction (`crazyflie_hover_dr.py`). The agent is never told these values; it can only infer them from how the drone moves. This is known as **domain randomisation** (Peng et al., 2018). The agents were then tested with the same disturbance tests as D. Disturbances within these ranges test interpolation; 4 m/s wind, 6 m/s gusts and command delays lie outside them. With 3 seeds this is a pilot.
 
-*Results pending.*
+**The result.** Without disturbance, from the final test starts (success / crashes):
+
+| Agents | Decision rule | Training area | Held-out block | Outside | Late error of full flights |
+|---|---|---:|---:|---:|---:|
+| varied physics, H2 (3) | planning | 13 ± 7% / 0% | 7 ± 4% / 0% | 4 ± 4% / 0% | 14.3 ± 2.0 cm |
+| | policy network only | 34 ± 31% / 0% | 34 ± 33% / 0% | 27 ± 23% / 1% | 12.5 ± 2.9 cm |
+| nominal physics, D (11) | planning | 78 ± 10% / 0% | 83 ± 10% / 0% | 59 ± 9% / 3% | 7.4 ± 0.9 cm |
+
+Under disturbances, crashes with planning / late error of the full flights (training-area starts):
+
+| Condition | H2 | D |
+|---|---:|---:|
+| none | 0% / 16 cm | 0% / 7.5 cm |
+| wind 2 m/s | 0% / 22 cm | 0% / 25 cm |
+| wind 3 m/s | 0% / 47 cm | 1% / 67 cm |
+| wind 4 m/s | 34% / 162 cm | 41% / 169 cm |
+| gust 6 m/s | 55% / 76 cm | 67% / 82 cm |
+
+![Success under each disturbance for the varied-physics pilot H2 (blue) and the nominal small agents D (orange); solid with planning, dashed policy network only.](code/src/tdmpc2_training/reports/figures/h2_disturbances.png)
+
+**What it means.** The hypothesis is not supported by this pilot. Training on varied physics bought a little robustness in strong wind (fewer crashes at 4 m/s and in 6 m/s gusts, and the drone held 20 cm closer in 3 m/s wind), but it cost most of the precision in calm air: 13% success against 78%. And the planner does not beat the policy network for these agents (-21 points, with a very wide interval over 3 seeds), so the world model trained on varied physics is not used to advantage either.
+
+A likely reason is in the observation. The agent sees only its current state and its previous command, not a history. In a given flight it cannot tell whether it is heavy, weak or pushed by wind, so its world model can only learn the average effect over all the variations it was trained on, which is wrong for any particular flight; the planner then plans with a model that is wrong in every flight, and the precision suffers. This is a known requirement of domain randomisation: the controller must be able to infer the hidden conditions, usually from a short history of observations, or be given an estimate of them. Testing this would need a change of the observation (for example the last few observations and commands), not only of the physics.
 
 ## 5.12 Snapshots: change during training, and the best versus the final checkpoint
 
@@ -365,19 +497,56 @@ The wind acts through the simulator's air model, so it pushes on the drone the w
 - **What swings is mostly precision.** From one snapshot to the next, the typical final error of the full flights moves between about 4 and 15 cm, sometimes 20 to 60 cm. Crashes are rare but not absent: one seed's 500k snapshot crashed in 44% of the flights from the training area, and the next one did not.
 - **The best snapshot beats the final one.** Choosing each run's snapshot on the 40 validation starts alone gives an average test success of 97% from the training area, against 76% for the final snapshots (+21 ± 11 points; +9 ± 10 from the held-out block, +7 ± 8 from outside). It rescues exactly the weak seeds: seed 8 goes from 14% to 100% and seed 10 from 2% to 100%.
 
-![Every 100k-step snapshot of every run, flown from the same starts with the same sensor noise (thin lines: one seed each; thick line: mean). The first four panels show success per group of starts, the last one the typical final error from the training area, with the 10 cm threshold dotted.](code/src/tdmpc2_training/reports/figures/snapshots.png)
+![Every 100k-step snapshot of every run, with planning, flown from the same starts with the same sensor noise (thin lines: one seed each; thick line: mean). Rows: R1, C1, the small agents D and the reward pilot (Section 5.13). The first four panels of a row show success per group of starts, the last one the typical final error from the training area, with the 10 cm threshold dotted. R1 rises steadily; D swings from snapshot to snapshot.](code/src/tdmpc2_training/reports/figures/snapshots.png)
 
-[R1_SNAP]
+**The result for the published agents.** The same test for R1 and C1, with planning and with the policy network alone. Test success at the validation-chosen snapshot and at the final one (training area / held-out block / outside, mean ± standard error across seeds):
 
-**What it means.** Training longer does not make an agent settle: even after 500k steps, its precision keeps moving by several centimetres from one checkpoint to the next, while it stays safe. Because success is a 10 cm threshold and the typical error sits close to it, these small moves turn into large jumps of success, which is also why the final results of Section 5.7 differ so much between seeds. The cure that works now is simple: keep snapshots, test them on validation starts, and keep the best. The cure that would work at the root is to make precision matter more to the agent (Section 5.13).
+| Agents | Decision rule | Best snapshot (validation) | Final snapshot |
+|---|---|---|---|
+| small, random starts, D (11) | planning | 97 ± 2% / 91 ± 8% / 70 ± 6% | 76 ± 11% / 82 ± 10% / 62 ± 9% |
+| | policy network only | 47 ± 14% / 48 ± 15% / 37 ± 11% | 9 ± 9% / 9 ± 9% / 11 ± 8% |
+| published, random starts, R1 (11) | planning | 49 ± 7% / 46 ± 7% / 26 ± 5% | 42 ± 8% / 39 ± 9% / 24 ± 6% |
+| | **policy network only** | **90 ± 6% / 81 ± 11% / 59 ± 8%** | 60 ± 11% / 62 ± 13% / 39 ± 10% |
+| published, single start, C1 (3) | planning | 28 ± 2% / 17 ± 12% / 0 ± 0% | 29 ± 5% / 7 ± 7% / 1 ± 1% |
+| | policy network only | 59 ± 14% / 35 ± 14% / 3 ± 3% | 45 ± 22% / 18 ± 11% / 0 ± 0% |
+
+(The final-snapshot numbers differ by a few points from Sections 5.5 to 5.7 because the snapshot test uses its own sensor-noise seed and leaves out the Batch 1 starts.)
+
+- **R1's planner is not drifting; it is still learning.** Its snapshots improve almost monotonically (the best snapshot is the final one for 6 of the 11 seeds), and choosing on validation gains only 7 ± 4 points.
+- **R1's policy network alone, at its validation-chosen snapshot, is one of the two best controllers of the project:** 90% success from the training area and 81% from the held-out block, with no crash inside the area (6% outside) and a typical final error of 7.2 cm. Its success also drifts between snapshots (within-run standard deviation 0.24 ± 0.04 from 500k on), so choosing the snapshot matters (+30 ± 9 points over the final one).
+- **For C1** choosing a snapshot changes little: single-start agents are limited by their crashes, not by drift.
+
+![The same snapshots flown with the policy network only. For R1 (first row) the policy network alone reaches 80-100% success at several snapshots of most seeds.](code/src/tdmpc2_training/reports/figures/snapshots_policy_only.png)
+
+**What it means.** Training longer does not make an agent settle: even after 500k steps, its precision keeps moving by several centimetres from one checkpoint to the next, while it stays safe. Because success is a 10 cm threshold and the typical error sits close to it, these small moves turn into large jumps of success, which is also why the final results of Section 5.7 differ so much between seeds. The cure that works now is simple: keep snapshots, test them on validation starts, and keep the best. With it, the two best controllers of the project are the small model with planning (97% from the training area) and the published model's policy network alone (90%). Whether a sharper reward could cure the drift at the root is the subject of Section 5.13.
 
 ## 5.13 A sharper reward near the target (pilot)
 
 **The question.** Section 5.12 shows that the precision of an agent drifts between checkpoints, while it never crashes. A look at the reward suggests why. The lab's reward per step is 0.001 for staying in the air, plus 0.01 × (1 - tanh d) for being at a distance d from the target, plus the reduction of the distance since the previous step, and -1 for a crash. Hovering at 5 cm from the target earns 0.0105 per step; hovering at 15 cm earns 0.0095. The difference, 0.001 per step, is about a tenth of the value of hovering at all, and in TD-MPC2's value encoding (101 bins over a symmetric logarithmic range from -10 to 10, so bins of width 0.2) it is a quarter of a single bin. Within the 3-step planning horizon, the two rewards differ by only 0.003. The agent therefore has very little reason to prefer 5 cm over 15 cm, which could explain why its precision wanders. This is a hypothesis; the experiment below tests it.
 
+**A direct look at the value network.** The script `probe_value.py` asks a trained agent how good it thinks it is to hover still at points around the target: the drone is placed at rest on a grid of points within 30 cm of the target, its exact observation is built, and the agent's value networks give their estimate. Nine snapshots were probed, four precise ones (3-7 cm in flight) and five imprecise ones (10-56 cm). In all nine, the value is almost flat: it changes by less than 0.005 within 10 cm of the target and by about 0.01 within 20 cm, on a value of about 1.1. For comparison, a value that followed the rewards closely would change by about 0.1 per 10 cm near the target, because a drone that is still 10 cm away can collect 0.1 of distance-improvement reward by flying in. In other words, the value network does not see the difference between 0 and 20 cm. The precise and the imprecise snapshots look the same, so this does not explain which checkpoints drift; it explains where the precision comes from. Since the value is flat, the precision must come from the rewards that the world model predicts over the planning horizon. This fits three earlier results: the policy network, trained against the flat value, is imprecise (Section 5.8); planning only one step ahead, which leans almost entirely on the value, is much worse (Section 5.14); and five steps is slightly better than three.
+
 **How it was tested.** Three seeds of the small model were trained exactly like D, with one change: an extra reward term concentrated near the target, 0.01 × exp(-d² / (2 × 0.05²)), worth 0.01 at the target, 0.006 at 5 cm and almost nothing beyond 15 cm (`crazyflie_hover_sharp.py`). Hovering at 2 cm instead of 15 cm now earns about 0.010 more per step instead of 0.001. Physics, observations, starts and tests are unchanged, and the test flights measure distances, so the results compare directly with D. The comparison of interest is the drift between snapshots and the final precision. This is a change of the task's reward, not of TD-MPC2, and with 3 seeds it is a pilot.
 
-*Results pending.*
+**The result.**
+
+| Small agents, with planning | Sharp reward (3 seeds) | Lab reward, D (11 seeds) |
+|---|---:|---:|
+| final snapshot: training area / held-out / outside | 37 ± 19% / 66 ± 33% / 23 ± 17% | 78 ± 10% / 83 ± 10% / 59 ± 9% |
+| best snapshot (validation) | 91 ± 5% / 78 ± 19% / 47 ± 3% | 97 ± 2% / 91 ± 8% / 70 ± 6% |
+| crashes, final, training area / outside | 0% / 2% | 0% / 3% |
+| within-run SD of training-area success, from 500k | 0.25 ± 0.04 | 0.34 ± 0.03 |
+| typical final error per snapshot, from 500k (mean of the seeds' medians) | 9.3 cm | about 10 cm |
+| snapshots with a typical final error above 20 cm, from 500k | 0 of 18 | 9 of 66 |
+| value drop from the target to 10 cm / 20 cm (probe) | 0.03-0.05 / 0.07-0.13 | about 0.00 / 0.01 |
+
+The probe gives the clearest answer: with the sharp reward, the value network does see the target. Its value is highest within 2-3 cm of the target in three of the six probed snapshots, and it drops by 0.03 to 0.05 at 10 cm and 0.07 to 0.13 at 20 cm, against practically nothing for the lab's reward. The agents learned the extra reward.
+
+Yet the precision still drifts. Success still swings from snapshot to snapshot four times more than test noise allows (0.25 against about 0.06), and the typical final error per snapshot is about the same as with the lab's reward (9.3 against about 10 cm). What disappeared are the large excursions: none of the 18 snapshots from 500k on had a typical error above 20 cm, against 9 of 66 for D (a difference that, with 3 seeds, is suggestive rather than proven). The final snapshots happened to be weak (one seed's final snapshot succeeded in 0% of the flights from the training area while its 400k snapshot succeeded in 84%), which is why the final results look worse than D's; at the validation-chosen snapshots the two are close (91% against 97%).
+
+![Success of the final agents with planning: the sharp-reward pilot against the small agents with the lab's reward.](code/src/tdmpc2_training/reports/figures/sharp_comparison.png)
+
+**What it means.** The hypothesis is rejected in its simple form: making precision worth ten times more did change what the agent values, but it did not stop the precision from drifting around the 10 cm line. The flat value function is therefore not the cause of the drift. What remains as candidates is the planner itself (each decision is the best of a random sample, so the hover position wanders with the sampling) and the continual updates of the world model and policy, which keep moving the agent's behaviour by a few centimetres even after it has learned the task. The practical conclusion does not change: choose checkpoints on validation starts. The sharp reward may be worth keeping for its smaller excursions, but this needs more seeds before it is a finding.
 
 ## 5.14 The planning horizon
 
@@ -396,9 +565,20 @@ The wind acts through the simulator's air model, so it pushes on the drone the w
 
 In a 3 m/s steady wind, no horizon gives any success, and the crashes from outside starts grow with the horizon (7% at 1 or 3 steps, 18% at 10).
 
-[R1_HORIZON]
+**The result for the published random-start agents (R1, 11 seeds).**
 
-**What it means.** Looking only one step ahead is clearly worse, probably because the planner then relies almost entirely on the value network, which judges a situation less precisely than a few steps of the world model's predictions do. Five steps is slightly better than the trained three (by about 10 points, but only about 1.5 standard errors, so this is a hint rather than a finding), and ten steps is no better in the training area while it doubles to triples the crashes from outside starts, where the world model's errors pile up over the longer horizon. For the Batch 1 single-start agent used to try out the test, every change from 3 steps was worse. The horizon that helps is therefore limited by how accurate the world model is: a model trained on varied data can look a little further ahead, a narrowly trained one cannot. For practical use, the trained horizon of 3 is a sound choice, and 5 could be tried.
+| Horizon | Training area | Outside | Training area, 3 m/s wind (crashes) |
+|---:|---:|---:|---:|
+| 1 step | 37 ± 10% / 0% (-5 ± 6) | 27 ± 6% / 7% (+8 ± 6) | 11% |
+| 3 steps (as trained) | 43 ± 8% / 0% | 19 ± 6% / 25% | 32% |
+| 5 steps | 43 ± 10% / 1% (-0 ± 6) | 19 ± 4% / 32% (+0 ± 4) | 41% |
+| 10 steps | 29 ± 8% / 4% (-13 ± 7) | 8 ± 3% / 44% (-12 ± 5) | 49% |
+
+For R1, looking further ahead never helps, and every extra step of horizon adds crashes, outside the area and in wind: from 1 to 10 steps, crashes from outside starts grow from 7% to 44% and in 3 m/s wind from 11% to 49%. A horizon of 1 step, which relies mostly on the value network and least on the world model, is as good as 3 inside the area and crashes least everywhere. This is again what model exploitation predicts: the further the planner searches through an imperfect model, the more model errors it can find.
+
+![Success against the planning horizon used at test time, without disturbance (blue), in 3 m/s wind (red) and with 15% extra mass (orange), for R1, C1, the small agents D and H2. Left: training-area starts; right: outside starts. Dotted line: the trained horizon of 3.](code/src/tdmpc2_training/reports/figures/horizon.png)
+
+**What it means.** Looking only one step ahead is clearly worse, probably because the planner then relies almost entirely on the value network, which judges a situation less precisely than a few steps of the world model's predictions do. Five steps is slightly better than the trained three (by about 10 points, but only about 1.5 standard errors, so this is a hint rather than a finding), and ten steps is no better in the training area while it doubles to triples the crashes from outside starts, where the world model's errors pile up over the longer horizon. For the published R1 agents, whose planner already shows signs of exploitation (Section 5.9), longer horizons only add crashes, and for the single-start C1 agents no horizon is clearly better. The horizon that helps is therefore limited by how accurate the world model is where it is used: the small random-start agents can look a little further ahead, the others cannot. For practical use, the trained horizon of 3 is a sound choice, and 5 could be tried for the small model.
 
 ## 5.15 How the drone flies: settling, smoothness and the worst flights
 
@@ -419,7 +599,17 @@ In a 3 m/s steady wind, no horizon gives any success, and the crashes from outsi
 | policy network only | 2.15 s | 8.2 s (10% of flights) | 10% | 8% | 2% | 22 cm |
 | 64×2 planner | 1.75 s | 6.6 s (75% of flights) | 32% | 37% | 65% | 11 cm |
 
-[R1_QUALITY]
+For the published agents (training-area and held-out starts):
+
+| Agents | Decision rule | Within 20 cm after | Stays within 10 cm after | Thrust jitter | Moment jitter | Steps at a limit | 90th percentile of late error | Worst late error |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| R1 (11) | with planning | 1.80 s | 8.6 s (48% of flights) | 23% | 22% | 46% | 21 cm | 51 cm |
+| | policy network only | 1.73 s | 5.3 s (57% of flights) | 9.6% | 6.0% | 1% | 14 cm | 18 cm |
+| | 64×2 planner | 1.72 s | 8.1 s (57% of flights) | 25% | 28% | 54% | 15 cm | 21 cm |
+| C1 (3) | with planning | 2.27 s | 7.1 s (44% of flights) | 23% | 22% | 43% | 50 cm | 173 cm |
+| | policy network only | 2.05 s | 5.9 s (45% of flights) | 11% | 7.6% | 12% | 12 cm | 26 cm |
+
+The published planner is as jumpy as the small one, and its worst flights are worse than its policy network's (a worst late error of 51 against 18 cm). R1's policy network alone settles faster than any planner (5.3 s) and has the tightest tail of the whole project (90% of its flights end within 14 cm).
 
 **What it means.** The drone gets close quickly: within 20 cm in under 2 seconds, with or without planning. The last few centimetres take much longer, because the error hovers around the 10 cm line before settling, which is the same precision issue seen in Sections 5.7 and 5.12. The striking number is the jitter. In steady hover, the planner changes its thrust command by 29% of its full range from one step to the next, and half of all its commands sit at a limit (zero thrust, full thrust, or a maximal moment). The policy network alone is three to four times smoother. The tests use the planner exactly as it should be used for testing (the best candidate, no added noise), so this jumpiness is not a testing artefact; Section 5.16 explains where it comes from and tests whether it can be avoided.
 
@@ -445,9 +635,26 @@ Before the test was run, it was checked against the existing test code: with the
 | 60 ms | averaged plan | 78 ± 10% / 1% | +1 ± 1 | 18% | 3% |
 | 60 ms | planner, 40 ms filter | 66 ± 12% / 3% | -11 ± 4 | 6.6% | 15% |
 
-[R1_SMOOTHING]
+**The result for the published random-start agents (R1, 11 seeds).**
 
-**What it means.** The planner does not need its jumpy commands. Passing them through a 40 ms filter keeps exactly the same precision (+0 ± 1 points) while making the commands as smooth as the policy network's and removing almost all saturation; acting on the averaged plan also keeps the precision and removes the saturation, though the commands still change more from step to step. The agents also tolerate slow motors on their own: a 30 or 60 ms motor lag costs the planner at most 2 points. What does not work is stacking the two lags: the filter on top of 60 ms motors costs 11 points, because the delays add up. The practical rule is that the command filter should be sized together with the real motors, once their response has been measured. This is the most useful deployment result of the night: a simple, cheap change at decision time removes a problem that would otherwise make the planner unsuitable for real motors.
+| Motor lag | Decision rule | Success / crashes | Change vs planner | Thrust jitter | At a limit |
+|---|---|---:|---:|---:|---:|
+| none | planner as trained | 40 ± 8% / 1% | | 23% | 46% |
+| none | averaged plan | 43 ± 8% / 1% | +2 ± 2 | 17% | 1% |
+| none | planner, 40 ms filter | 29 ± 6% / 3% | -11 ± 3 | 6.6% | 6% |
+| none | policy network only | 61 ± 12% / 0% | +21 ± 11 | 9.6% | 1% |
+| 30 ms | planner as trained | 32 ± 7% / 2% | | 19% | 47% |
+| 30 ms | policy network only | 61 ± 11% / 0% | +29 ± 12 | 8.4% | 1% |
+| 60 ms | planner as trained | 21 ± 6% / 6% | | 17% | 52% |
+| 60 ms | averaged plan | 22 ± 6% / 5% | +1 ± 2 | 11% | 3% |
+| 60 ms | planner, 40 ms filter | 8 ± 3% / 22% | -14 ± 4 | 5.6% | 15% |
+| 60 ms | policy network only | 59 ± 11% / 0% | +37 ± 12 | 7.9% | 2% |
+
+![Success against the motor lag for each way of acting (training-area and held-out starts). Left: R1; right: the small agents D. The published planner loses precision with slower motors and with the filter; the small planner keeps it; R1's policy network alone is unaffected.](code/src/tdmpc2_training/reports/figures/smoothing.png)
+
+The published model behaves differently: its planner is sensitive to both the filter and the motor lag (a 60 ms lag halves its success and brings 6% crashes), while its policy network alone does not notice the lag at all (61, 61 and 59%). Acting on the averaged plan is the only change that is free for both models.
+
+**What it means.** The small model's planner does not need its jumpy commands. Passing them through a 40 ms filter keeps exactly the same precision (+0 ± 1 points) while making the commands as smooth as the policy network's and removing almost all saturation; acting on the averaged plan also keeps the precision and removes the saturation, though the commands still change more from step to step. The agents also tolerate slow motors on their own: a 30 or 60 ms motor lag costs the planner at most 2 points. What does not work is stacking the two lags: the filter on top of 60 ms motors costs 11 points, because the delays add up. The practical rule is that the command filter should be sized together with the real motors, once their response has been measured. For the published model the filter is not free (-11 points), and acting on the averaged plan is the safer choice; its policy network alone needs no smoothing at all. This is the most useful deployment result of the night: a simple, cheap change at decision time removes a problem that would otherwise make the planner unsuitable for real motors.
 
 ## 5.17 Speed: decision time, training time and parallel drones
 
@@ -477,6 +684,14 @@ The published planner fits the 20 ms budget easily on a GPU but is about 25 time
 
 The 1-drone projections match the measured training speeds, so the projection can be trusted. Simulation parallelises perfectly, but TD-MPC2 must still plan for every drone and, by default, make one learning update for every step collected. Parallel drones therefore speed it up by only 1.6 times (published) to 2.9 times (small). Going further requires fewer updates per step, which changes the algorithm and would have to be checked for its effect on learning.
 
+## 5.18 Does the published model just need more training? (R1 continued to 2M steps)
+
+**The question.** Sections 5.5 and 5.12 show that R1 was still improving at 1M steps, while the small model had levelled off by about 400k. Is the published model simply slower to learn, so that with more steps it would catch up with (or pass) the small one? This matters for the professor's question about model size: a larger model that needs twice the training is a different trade-off from a larger model that is worse.
+
+**How it is tested.** Seeds 0, 1 and 2 of R1 were copied after their 1M-step training, with their replay buffer, and continued to 2M steps in three pieces of 3 hours (`cluster/copy_run_job.sh`, then `seed_job.sh` resuming), keeping snapshots every 100k steps. At 2M they fly the same final tests as every other agent. Nothing else changes, so the 1M and 2M agents of each seed can be compared directly.
+
+**Status.** Still running at the time of writing (the second of three pieces was running at 09:00; the run ends in the early afternoon of November 2). Its results go to `outputs/batch2/random_start_2M/` and will be added here. With 3 seeds, it will show the direction (does success keep rising, and does the planner catch up with the policy network?), not a precise size.
+
 # 6. Answers to Professor Bellinger's questions
 
 This chapter answers the ten questions that were drawn from Professor Bellinger's feedback. Each answer starts with the short version, then gives the evidence (with the section of Chapter 5 where it is shown) and says how certain it is: **established** means several seeds, the right controls and a repeated measurement; **preliminary** means few seeds or a single setting, so the direction is clear but the size is uncertain.
@@ -493,9 +708,9 @@ This chapter answers the ten questions that were drawn from Professor Bellinger'
 
 **Short answer.** It resolves the variability in safety, not in precision. After 1M steps, no small random-start agent crashes from the training area or the held-out block, but how precisely each one hovers still varies between seeds and drifts within each run.
 
-**Evidence (established for the small model, Sections 5.7 and 5.12).** All 11 small agents avoid crashes, but their final success from the training area ranges from 8% to 100%, because their steady-state error sits a few centimetres on either side of the 10 cm threshold. The snapshots show that the same happens within a run: from one 100k-step snapshot to the next, success changes five to seven times more than test noise can explain, mostly because the steady-state error moves between about 4 and 15 cm. Choosing each run's snapshot on separate validation starts recovers most of the loss (Section 5.12). [Q2_R1]
+**Evidence (established for the small model, Sections 5.7 and 5.12).** All 11 small agents avoid crashes, but their final success from the training area ranges from 8% to 100%, because their steady-state error sits a few centimetres on either side of the 10 cm threshold. The snapshots show that the same happens within a run: from one 100k-step snapshot to the next, success changes five to seven times more than test noise can explain, mostly because the steady-state error moves between about 4 and 15 cm. Choosing each run's snapshot on separate validation starts recovers most of the loss (Section 5.12). For the published model, 1M steps is not even enough to finish learning: R1 improves almost steadily up to the last snapshot (Sections 5.5 and 5.12), so for that model "longer" is still part of the answer, and the continuation to 2M steps tests how much (Section 5.18).
 
-**Why, and what to do.** A likely cause is the reward, which barely distinguishes 5 cm from 15 cm (Section 5.13); [Q2_SHARP] In practice, a run should be judged by its best validated snapshot, not by its last one, and the success threshold should be reported together with the full distribution of errors.
+**Why, and what to do.** The first suspect was the reward, which barely distinguishes 5 cm from 15 cm. The reward pilot (Section 5.13) rejected it in its simple form: with a reward ten times sharper near the target, the value network did learn to prefer the target, the large excursions disappeared, but the precision still drifted around the 10 cm line. The remaining suspects are the planner's sampling and the continual updates of the networks. In practice, a run should be judged by its best validated snapshot, not by its last one, and the success threshold should be reported together with the full distribution of errors.
 
 ## Q3. How do TD-MPC2 and PPO compare in simulator steps and wall-clock time?
 
@@ -521,7 +736,18 @@ This chapter answers the ten questions that were drawn from Professor Bellinger'
 
 **Short answer.** Yes. Trained on random starts, TD-MPC2 learns to reach the target from anywhere in the region, does equally well from a block of starts it never trained from, and still mostly succeeds from starts up to 0.75 m outside the region. Trained from one start, it does none of this.
 
-**Evidence.** [Q6_EVIDENCE]
+**Evidence (established for both model sizes, Sections 5.4 to 5.7).** Success / crashes on the same 110 test starts, with planning:
+
+| Agents | Training area | Held-out block | Outside |
+|---|---:|---:|---:|
+| published, single start (Batch 1 1M and C1) | 20-26% / 35-66% | 2-4% / 82-91% | 0-2% / 87-92% |
+| **published, random starts (R1, 11 seeds)** | 46% / 0% | 39% / 2% | 20% / 26% |
+| R1, policy network only, best validated snapshot | 90% / 0% | 81% / 0% | 59% / 6% |
+| small, single start (Batch 1, 50k) | 19% / 9% | 11% / 15% | 4% / 31% |
+| **small, random starts (D, 11 seeds)** | 78% / 0% | 83% / 0% | 59% / 3% |
+| D, best validated snapshot | 97% / 0% | 91% / 0% | 70% / 2% |
+
+Random starts beat single-start training for both sizes: +20 to +34 points for the published model against its control C1, +55 to +72 points for the small model against Batch 1, with the crashes inside the area gone. The held-out block, never used for training, does as well as the training area (83% against 78% for the small model; 39% against 46% for R1 with planning, 64% against 60% for its policy network), so interpolation works. Starts outside the area are harder (59% for the small model, 20% for R1 with planning and 40% for its policy network) but rarely end in a crash for the small model. The control C1 shows that the improvement comes from the random starts and not from the other change made at the same time (the target offset in metres). The size of the success also depends on the model and on how it is used: at 1M steps the small model with planning and the published model's policy network alone are the best, both at 90% or more from the training area when the checkpoint is chosen on validation starts.
 
 **What to say if asked more.** The held-out block is inside the range of the training starts, so it tests interpolation; the outside starts test moderate extrapolation, and that is where the remaining failures are. Section 9.2 lists ways to reduce them.
 
@@ -532,18 +758,43 @@ This chapter answers the ten questions that were drawn from Professor Bellinger'
 **Evidence (Sections 5.4, 5.8 and 5.9).**
 
 - **Single-start agents, used away from their start:** planning costs the published 1M agents 26 points of success [-46, -8] and multiplies their crashes by four (66% against 15% from training-area starts). The planner's flights go where the world model is 2.4 to 2.8 times more wrong than along the policy network's flights, the model error rises sharply just before crashes, and restraining the planner reduces crashes by 19 points. This is model exploitation, the known weakness of planning with learned models (Janner et al., 2019).
-- **Random-start agents, used where they trained:** planning adds 69 points of success [+30, +96] for the small agents. Their policy network alone never crashes but typically ends 21 cm from the target; the planner brings this to 7 cm. Along the planner's flights the model is as accurate or more accurate than along the policy's, and restraining the planner only loses precision. [Q7_R1]
+- **Random-start agents, used where they trained:** planning adds 69 points of success [+30, +96] for the small agents. Their policy network alone never crashes but typically ends 21 cm from the target; the planner brings this to 7 cm. Along the planner's flights the model is as accurate or more accurate than along the policy's, and restraining the planner only loses precision.
+- **The published random-start agents (R1) show both sides at once:** their data covers the area, but their harder search (512 candidates over 6 rounds) still finds model errors. The planner loses to the policy network alone (-15 to -25 points), its flights go where the model is 1.2 to 2 times more wrong, and every way of restraining it helps: a narrower search (+8 to +11 points), more candidates from the policy network (+8 to +13), a smaller 64×2 search (+8 to +12) or a shorter horizon (fewer crashes). So "covered by the data" is necessary but not sufficient: how hard the planner searches also matters, and so, probably, does how far the world model has learned (R1 was still improving at 1M steps).
 - **In between:** for random-start agents pushed by strong wind into states they never saw, the planner again crashes more than the policy network alone (41% against 29% at 4 m/s, Section 5.10).
 
 **What to say if asked more.** The answer to "when" is "where the model's training data covers the situation", and the answer to "why" has two parts: on covered data, planning adds precision the policy network lacks; off it, optimising against an imperfect model finds its errors. The practical consequences are to train on the variation that will be met (random starts, varied physics), and to keep the planner away from situations the model does not know (for example by penalising uncertain predictions).
 
 ## Q8. Does planning improve robustness compared with the policy network alone?
 
-*Completed with the final results.*
+**Short answer.** For the small random-start agents, yes against moderate disturbances, because planning keeps their precision; no agent's planner protects it against strong wind, and there planning makes crashes more likely. For the published agents, the policy network alone is the more robust under every disturbance tested.
+
+**Evidence (established for D and R1, preliminary for C1 and H2; Sections 5.10 and 5.11).**
+
+- **Small random-start agents (11 seeds):** with planning, 72-77% success under extra mass (up to +15%), weaker motors (down to -10%) and command delay (up to 40 ms), 61-68 points above the policy network alone. In wind, 60% at 1 m/s and none from 2 m/s on, but with no crashes up to 3 m/s. Beyond what any agent can handle, the planner crashes more than the policy network (41% against 29% at 4 m/s, 67% against 21% in 6 m/s gusts).
+- **Published random-start agents (11 seeds):** the planner falls from 43% to 15-33% under mass, motor and delay changes, the policy network alone stays at 51-60%; in 3 m/s wind the planner crashes in 32% of the flights, the policy network in none.
+- **Single-start agents:** the planner is worse than the policy network under every disturbance, and both crash often.
+- **Training on varied physics (H2 pilot, 3 seeds):** slightly fewer crashes in strong wind (34% against 41% at 4 m/s), but much less precision in calm air (13% success against 78%), and the planner does not beat the policy network. Not a good trade in this form; the agent probably needs a history of observations to tell which conditions it is flying in.
+
+**What to say if asked more.** Robustness here has two parts: staying precise, and not crashing. Planning helps the first whenever the world model is accurate, which for the small agents includes every moderate disturbance tested. It hurts the second whenever a disturbance pushes the drone into states the model never saw, which is the same mechanism as in Q7. Wind of 2 m/s or more is the limit for every agent trained without wind.
 
 ## Q9. How does model size affect inference speed and deployability?
 
-*Completed with the final results.*
+**Short answer.** The small model is faster in every way and, at 1M steps, also more precise with planning: it plans in 11 ms on a laptop-class CPU, against 516 ms for the published model, and it succeeds in 78% of the flights from the training area against 46%. The published model's strength is its policy network: used alone, it is as good as the small model's planner at the right checkpoint and decides in 0.3 ms.
+
+**Evidence (Sections 5.5, 5.7, 5.12 and 5.17).**
+
+| | Published model (5.0M weights) | Small model (0.39M weights) |
+|---|---|---|
+| decision time with planning, GPU slice / 2 CPU cores | 6.1 ms / 516 ms | 1.4 ms / 11.4 ms |
+| decision time, 64×2 planner (CPU) | 28 ms | 4.4 ms |
+| decision time, policy network only (CPU) | 0.2 ms | 0.2 ms |
+| training speed (Narval GPU slice) | 49 steps/s, about 7 h per 1M | 88 steps/s, about 4 h per 1M |
+| success / crashes from the training area at 1M, with planning | 46% / 0% | 78% / 0% |
+| same, policy network only | 60% / 0% | 9% / 0% |
+| best validated snapshot, best decision rule | 90% / 0% (policy network only) | 97% / 0% (planning) |
+| still improving at 1M steps? | yes | no, level since about 400k |
+
+**What it means for deployment.** A real Crazyflie needs a decision every 20 ms. The published planner fits only with a GPU next to the drone; the small planner fits on a CPU with some margin, and its 64×2 version with a lot of margin and no loss of success (Section 5.7). The published model's policy network alone fits on any computer next to the drone, and is the most robust option under disturbances (Q8), but it has to be chosen at the right checkpoint. Whether the published planner overtakes the small one with more training is being tested (Section 5.18).
 
 ## Q10. What prevents safe transfer to a real Crazyflie?
 
@@ -558,7 +809,7 @@ This chapter answers the ten questions that were drawn from Professor Bellinger'
 
 - **Jumpy commands.** The planner's commands change by about 30% of their range from one step to the next, and half of them sit at a limit (Section 5.15). The smoothing test (Section 5.16) shows that a 40 ms filter, or acting on the planner's averaged plan, keeps the precision with commands as smooth as the policy network's; the filter must then be sized together with the real motors' response.
 - **Decision time.** The published planner needs a GPU next to the drone (6 ms per decision on a GPU slice, 516 ms on a CPU). The small planner nearly fits on a laptop CPU (11 ms) and the policy network alone fits anywhere, but it is much less precise.
-- **Wind.** Agents trained without wind lose their precision in a steady wind of 2 m/s or more (Section 5.10); whether training with wind fixes this is the subject of Section 5.11.
+- **Wind.** Agents trained without wind lose their precision in a steady wind of 2 m/s or more (Section 5.10); training with varied wind and mass did not fix this in the H2 pilot (Section 5.11): it gave slightly fewer crashes in strong wind but much less precision in calm air.
 - **Things the simulator does not have:** the state estimate of a real drone (the lab's final report found the Flow deck unreliable on dark netted mats), radio delay and its jitter, take-off and landing (every training flight starts in the air, at rest), battery sag and the propellers' own dynamics.
 
 **What is already solved in simulation.** The deployment adapter (`deploy_controller.py`) builds the agents' observation from Crazyflie-style state estimates (units, frames, quaternion order, the previous-action convention) and was checked to be identical to the simulator's over 300 closed-loop steps; two mistakes of the lab's earlier hardware path (an observation normaliser that was not applied, and a different previous-action convention) are avoided. A supervised test sequence is proposed in `reports/DEPLOYMENT_READINESS.md` and in Section 9.3.
@@ -635,6 +886,7 @@ A **test** of a saved agent (any of the `eval_*.py` scripts) rebuilds the agent 
 - **`analyze_precision.py`**: splits the late error of full flights into its horizontal and vertical parts and the height offset, per decision rule, and plots the share of flights ending within any distance from 0 to 50 cm, so that no conclusion depends on the 10 cm threshold.
 - **`analyze_flight_quality.py`**: from the step-by-step trajectories, the time to stabilise, the jitter of the commands, how often a command is at its limit, and the worst flights.
 - **`analyze_start_outcomes.py`**: the map of the test starts coloured by how many seeds succeeded from each.
+- **`probe_value.py`**: the agent's own value of hovering still at points around the target (Section 5.13); nothing is flown.
 - **`analyze_all.sh`**: runs every analysis above on the results copied home, skipping whatever is not finished yet.
 - **`variance_decomposition.py`** (A1) and **`fluctuation_analysis.py`** (A2): the two analyses of Batch 1 variability.
 - **`analyze_seeds.py`** and **`compare_methods.py`**: the Batch 1 plots and the TD-MPC2 vs PPO comparison.
@@ -674,7 +926,7 @@ A **test** of a saved agent (any of the `eval_*.py` scripts) rebuilds the agent 
 - `README.md`: how to install and run everything.
 - `CONTEXT.md`: the project's history and status, machines and environments.
 - `EXPERIMENTS.md`: the list of experiments, their validation and the launch log.
-- `reports/`: `RESEARCH_LOG.md` (chronological log), `experiment_registry.json` (machine-readable list of every experiment), `RESULTS_SUMMARY.md`, `NEXT_STEPS.md`, `DEPLOYMENT_READINESS.md`, `LITERATURE.md`, and this guide (`GUIDE.md`, built into a PDF by `make_guide.py`).
+- `reports/`: `RESEARCH_LOG.md` (chronological log), `experiment_registry.json` (machine-readable list of every experiment), `RESULTS_SUMMARY.md`, `NEXT_STEPS.md`, `DEPLOYMENT_READINESS.md`, `LITERATURE.md`, this guide (`GUIDE.md`, built into a PDF by `make_guide.py`), a short plain-language version (`BATCH2_EXPLAINED.md` and `.pdf`, built the same way), the one-page update for the supervisor (`SUPERVISOR_UPDATE.md`) and the handoff notes of the night (`HANDOFF.md`).
 
 ## 7.13 Where the results are
 
@@ -691,7 +943,7 @@ Every training run has its own folder (`outputs/batch2/<experiment>/seed_XX/` at
 | `disturbances*/`, `snapshot_evaluation*/`, `model_error/`, `planner_variants/`, `horizon_test/`, `smoothing_test/` | the follow-up tests |
 | `gpu_usage.csv`, `*.log` | GPU samples and the training log |
 
-Each experiment folder also has `batch_info.json`, which records the settings and the code version. The old Narval results were backed up to `/project/def-cbelling-ab/mounirz/tdmpc2_scratch_backup_2026-11-01/` before the scratch purge.
+Each experiment folder also has `batch_info.json`, which records the settings and the code version, and an `analysis/` folder with `summary.md`, the one file to read first: every table of that experiment (final tests, comparisons with the other experiments, disturbances) in plain text, with its figures next to it. The comparisons across experiments are in `outputs/batch2/*_summary/` (snapshots, model error, planner variants, horizon, smoothing, precision) and `outputs/batch2/flight_quality/`. A few snapshots were copied home for the value probe (Section 5.13). The old Narval results were backed up to `/project/def-cbelling-ab/mounirz/tdmpc2_scratch_backup_2026-11-01/` before the scratch purge.
 
 ## 7.14 Reproducing the results
 
@@ -787,6 +1039,8 @@ The task is deliberately narrow: one drone, one target point one metre above the
 - **Test-time changes.** The planner variants, the horizon test and the smoothing test change the planner only when testing agents trained with the default settings. An agent trained with a longer horizon, with more candidates from its policy network or with a command filter might behave differently; these tests show what the trained agents' models can support, not what the best training settings are.
 - **Assumed motor lags.** The 30 and 60 ms motor lags of the smoothing test were chosen to probe sensitivity. They are not measured values for the Crazyflie, and the real motor response must be identified before the filter can be sized.
 - **The reward pilot changes the task.** The extra reward near the target (Section 5.13) makes it a different task from the lab's, even though the tests measure the same distances. If it is adopted, it should be reported as a change of the reward, not as a property of TD-MPC2.
+- **Model sizes at equal steps.** The published and small models are compared after the same 1M steps, but the published model had not finished learning (Section 5.5). "The small model is better" holds at 1M steps; the 2M continuation of three seeds is the first check of whether it holds later.
+- **H2 tested one design of domain randomisation.** Its negative result concerns randomised physics without any memory in the observation; it does not show that domain randomisation cannot help TD-MPC2.
 - **Hyperparameters.** TD-MPC2 was used with its published settings (and the small settings from September), without tuning. A tuned configuration might change the sizes of the effects, especially for the small model.
 - **PPO.** The Batch 1 comparison with PPO used the lab's PPO with the two bugs described in Section 3.3. It was not repaired or re-run, so it is a historical baseline, not a fair tuned comparison. In particular, PPO's late degradation is likely caused by its learning rate never decreasing.
 - **Speed.** Times were measured on a 2/7 slice of an A100 shared with other users' jobs on the same card, and at home on an RTX 3060; other hardware will give other numbers. The parallel-drone speeds are projections from measured timings, not full training runs, and they do not measure how many environment steps a parallel version would need to learn.
@@ -799,20 +1053,21 @@ The task is deliberately narrow: one drone, one target point one metre above the
 The results answer most of the questions he asked; Chapter 6 gives the answers in the order of his feedback, and `reports/SUPERVISOR_UPDATE.md` is a one-page version to send. Four figures carry most of the story: the map of outcomes per start (random against single-start training), the success-for-every-threshold figure (planning against the policy network alone), the disturbance figure, and the smoothing figure. It is worth asking him four questions, because the answers decide where the next weeks go:
 
 - Should the project move toward a real flight now (which first requires retraining with commands the Crazyflie firmware accepts, Section 9.3), or deepen the simulation study first?
-- Is it acceptable to change the lab's reward (Section 5.13), or should the task stay exactly as the previous students defined it?
+- Which controller should the project carry forward: the small model with planning (97% at the best checkpoint, needs 11 ms per decision on a CPU) or the published model's policy network alone (90%, 0.3 ms, the most robust under disturbances)? The answer decides what a first hardware test would use.
 - Is a fair PPO comparison needed for the thesis? It would mean fixing the two PPO bugs and rerunning it on random starts.
-- Is the extra compute for longer runs of the published model worth it, given that the small model is faster to train and to run?
+- Is the extra compute for longer runs of the published model worth it? The 2M continuation (Section 5.18) gives the first answer this afternoon.
 
 ## 9.2 Next experiments in simulation
 
 In order of expected value for the effort:
 
-1. **Confirm the reward pilot with more seeds** if it reduced the drift of precision (Section 5.13): 11 seeds of the small model, about 6 hours on Narval. If it did not, look at the value function near the target directly (a probe of the agent's value for hover positions a few centimetres off target would show whether it prefers the target at all).
-2. **Choose checkpoints on the validation starts** as the standard procedure (Section 5.12), so that a run's final result does not depend on where its precision happened to be at the last step.
+1. **Choose checkpoints on the validation starts** as the standard procedure (Section 5.12), so that a run's final result does not depend on where its precision happened to be at the last step. This costs nothing new: every run already keeps snapshots.
+2. **Find the source of the precision drift.** The reward pilot ruled out the flat value function (Section 5.13). Two cheap tests remain: fly one snapshot with several planner random seeds (if the hover position changes with the seed, the planner's sampling is the cause), and lower the learning rate late in training (if the drift shrinks, the continual updates are the cause).
 3. **Train with smoothing in the loop.** The smoothing test shows what a trained agent tolerates at test time; training with the command filter (or a penalty on command changes) would let the agent adapt to it, and would also give a smoother policy network.
-4. **Randomised physics at full scale** if the H2 pilot showed a benefit under disturbances (Section 5.11), and with the motor lag added to the randomised quantities.
-5. **Reduce crashes from far starts**, the remaining weakness: the outside starts crash far more often than the others. Options are a larger training area, or planning that avoids states where the world model is uncertain (penalising disagreement between the value networks).
-6. **Training speed**: parallel drones with fewer learning updates per collected step, measuring how many more steps learning then needs. This must be reported as a variant of TD-MPC2, not as TD-MPC2.
+4. **Randomised physics with a memory.** The H2 pilot (Section 5.11) lost precision, probably because the agent cannot tell which conditions it is flying in. Repeat it with a short history of observations and commands in the observation (or an estimate of the wind and mass), 3 seeds first, and add the motor lag to the randomised quantities.
+5. **Reduce crashes from far starts**, the remaining weakness: the outside starts crash far more often than the others, especially for the published planner (26%). Options are a larger training area, or planning that avoids states where the world model is uncertain (penalising disagreement between the value networks).
+6. **Tame the published planner.** Its full search loses to its own policy network (Sections 5.5 and 5.9). Test, after the 2M continuation, whether a smaller search (64×2), more candidates from the policy network or a shorter horizon used during training (not only at test time) closes the gap.
+7. **Training speed**: parallel drones with fewer learning updates per collected step, measuring how many more steps learning then needs. This must be reported as a variant of TD-MPC2, not as TD-MPC2.
 
 ## 9.3 Toward a real Crazyflie
 
@@ -925,6 +1180,34 @@ Nothing in this guide authorises or prepares a flight on its own; every hardware
 
 Every Batch 2 job ran on Narval under the account `def-cbelling-ab`, on a 2/7 slice of an A100 GPU (except the copy job, which needs no GPU). Each job prints the git commit it ran in the first line of its log (`$SCRATCH/tdmpc2/batch2/logs/`), and each training batch records its settings and commit in `batch_info.json`. All job numbers are also listed in `$SCRATCH/tdmpc2/batch2/job_ids.txt`. The table below comes directly from the scheduler's records (`sacct`).
 
-[JOBS_TABLE]
+| Job | Name | Tasks | What it did | State (09:00) | Longest task |
+|---|---|---:|---|---|---:|
+| 7659264 | b2-narval-test | 1 | end-to-end check on Narval before launch | completed | 0:15 |
+| 7659438 | b2-random-start | 11 | **R1** training, 1M steps, and final tests | completed | 6:54 |
+| 7659439 | b2-fixed-start | 3 | **C1** training and final tests | completed | 6:45 |
+| 7659440 | b2-retest | 25 | Batch 1 agents re-flown (A1, R4) | completed | 0:07 |
+| 7659441 | b2-profile | 1 | training-time profile (Section 5.17) | completed | 0:30 |
+| 7660609 | b2-disturb-batch1 | 3 | disturbances, Batch 1 published 1M | completed | 0:30 |
+| 7660720 | b2-disturb-R1 | 11 | disturbances, R1 | completed | 0:30 |
+| 7660721 | b2-disturb-C1 | 3 | disturbances, C1 | completed | 0:30 |
+| 7661493, 7661496 | b2-small-p1, -p2 | 3 + 3 | **D** pilot seeds 0-2, two pieces of 3 h | completed | 1:54 |
+| 7661497 | b2-disturb-small | 3 | disturbances, D seeds 0-2 | completed | 0:06 |
+| 7662436, 7662437 | b2-small-p1, -p2 | 8 + 8 | **D** seeds 3-10 | completed | 2:31 |
+| 7662438 | b2-disturb-small | 8 | disturbances, D seeds 3-10 | completed | 0:07 |
+| 7662439, 7662440 | b2-snap-R1, -C1 | 11 + 3 | snapshots, R1 and C1 | completed | 1:03 |
+| 7662441, 7662442 | b2-snap-small | 3 + 8 | snapshots, D | completed | 0:17 |
+| 7663279 | tdmpc2-parallel | 1 | parallel-drone timing (E) | completed | 0:36 |
+| 7663280-7663284 | tdmpc2-model-error | 50 | model error: Batch 1, R1, C1, D | completed | 0:06 |
+| 7663755-7663758, 7663773 | tdmpc2-variants | 50 | planner variants: Batch 1, R1, C1, D | completed | 0:15 |
+| 7664888, 7664889 | b2-dr-p1, -p2 | 3 + 3 | **H2** training | completed | 2:01 |
+| 7664892, 7664893 | b2-disturb-dr, tdmpc2-variants | 3 + 3 | disturbances and planner variants, H2 | completed | 0:07 |
+| 7668108-7668110, 7668130, 7668133 | tdmpc2-horizon | 28 | horizon test: D, R1, C1, H2 | completed | 0:45 |
+| 7668917, 7668921, 7668922 | tdmpc2-smoothing | 22 | smoothing test: D, R1 | completed | 0:25 |
+| 7668941, 7668942 | b2-sharp-p1, -p2 | 3 + 3 | reward pilot training | completed | 2:04 |
+| 7668947 | b2-snap-sharp | 3 | snapshots, reward pilot | completed | 0:16 |
+| 7669541 | tdmpc2-copy-run | 3 | copy R1 seeds 0-2 for the continuation (CPU only) | completed | 0:00 |
+| 7669542, 7669543, 7669544 | b2-r1x-p1, -p2, -p3 | 3 + 3 + 3 | R1 seeds 0-2 continued to 2M (Section 5.18) | p1 completed, p2 running, p3 queued | 2:22 |
+
+In total, 294 tasks completed between the launch on the evening of November 1 and 09:00 on November 2, and none failed, timed out or was cancelled.
 
 The code versions, in order: `8edab5b` (Batch 2 launch: random starts, test starts, cluster jobs), `52873af` (resume with fresh randomness, used from R1 task 10 and C1 on), `785bfb2` (H2), `b86b66b` (horizon test), `3f9f21b` (smoothing test and reward pilot), `622b694` (R1 extension). Later commits changed only analysis scripts and documents. The training loop (`tdmpc2_jax/train.py`) last changed in `52873af`, the TD-MPC2 algorithm itself (`tdmpc2.py`, `world_model.py`) was not changed during Batch 2, and `train_hover.py` only gained the registrations of the H2 and reward-pilot environments (`785bfb2`, `3f9f21b`). The task and test code (`crazyflie_hover.py`, `hover_eval.py`, `eval_hover.py`) last changed at the launch, `8edab5b`.

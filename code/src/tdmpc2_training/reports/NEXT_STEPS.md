@@ -1,89 +1,54 @@
-# Next research plan (based on the Nov 1-2 results)
+# Next research plan (after Batch 2, Nov 2, 2026)
 
-Ordered by expected research value per unit of effort. Each step names the
-result that would change the plan.
+Ordered by expected research value per unit of effort. Each step says which
+result would change the plan. The reasoning behind each is in `GUIDE.md`,
+Chapter 9.
 
-## 1. Confirm or reject model exploitation across seeds (1-2 h, no training)
+## 0. Finish Batch 2 (today, no new work)
 
-**Why.** It is the clearest "when and why does the model hurt" finding so
-far. On single-start agents, planning crashes far more than the policy
-network alone; the planner visits states where the world model is 2-3x more
-wrong; and on one agent, anchoring half the planner's candidates to the
-policy network removed the extra crashes.
+- Add the R1 continuation to 2M steps (seeds 0-2, `random_start_2M`) when it
+  lands: pull with `cluster/pull_results.sh`, run `analyze_all.sh`, fill
+  Section 5.18 of the guide.
+- **Decision:** if R1 at 2M catches up with the small model (planning at 70%
+  or more from the training area), the published model is just slower and
+  longer runs are worth their cost; if not, carry the small model forward.
 
-**What.** Analyse the planner-variant, model-error and disturbance jobs
-already submitted for 25 Batch 1 agents and all Batch 2 agents:
+## 1. Make checkpoint selection on validation starts the standard (no training)
 
-```bash
-.venv/bin/python code/src/tdmpc2_training/analyze_planner_variants.py <batches...>
-.venv/bin/python code/src/tdmpc2_training/analyze_model_error.py <batches...>
-```
+Every run already keeps snapshots. Report each run at its validation-chosen
+snapshot as well as at its final one. This took the small model from 76% to
+97% and the published policy network from 60% to 90%.
 
-**Decision.**
-- If anchored planning is better than both the trained planner and the
-  policy network across seeds, make it the default for deployment, and test
-  it at training time (step 4).
-- If it only helps single-start agents, the effect is about data coverage,
-  which supports random starts as the main remedy.
+## 2. Find the source of the precision drift (about 2 h, no training)
 
-## 2. Small vs published model at 1M steps with random starts (pending, ~04:00)
+The reward pilot ruled out the flat value function. Two cheap tests:
+- fly one snapshot with several planner random seeds: if the hover position
+  changes with the seed, the planner's sampling is the cause;
+- lower the learning rate for the last 200k steps of one run: if the drift
+  shrinks, the continual updates are the cause.
 
-**Why.** Mid-run, the small model learned random starts much faster and
-generalised further. It also decides 4x faster (1.4 ms vs 6.1 ms on a GPU
-slice; 11 ms vs 516 ms on a CPU).
+## 3. Tame the published planner (about 8 h on Narval per variant, 3 seeds)
 
-**Decision.**
-- If the small model matches the published one in precision and is at
-  least as robust, use it for deployment work.
-- If the published model is more precise but less robust, report the
-  trade-off and consider a medium size (latent 256: 4.2 ms per decision).
+Its 512x6 search loses to its own policy network and to a 64x2 search. Train
+with a smaller search, or with more candidates from the policy network, and
+compare with R1 at the same steps. Only after step 0.
 
-## 3. Planning under disturbances the model was trained on (new training, ~8 h on Narval)
+## 4. Randomised physics with a memory (about 8 h, 3 seeds)
 
-**Hypothesis H2.** Planning helps when the world model has seen the relevant
-variation in training (interpolation), and hurts when it has not
-(extrapolation, H1).
+H2 lost precision, probably because the agent cannot infer which mass or wind
+it is flying in. Add the last few observations and commands to the
+observation (or an estimate of the wind and mass), then repeat H2 and its
+disturbance tests. This is also what a real drone needs against wind.
 
-**Experiment.** Train R1-like agents with dynamics randomisation: mass and
-motor strength drawn per episode (the lab environment already supports this)
-and, separately, random wind gusts. Test planning vs policy network on
-disturbances inside and beyond the training ranges. 3 seeds as a pilot,
-then 11.
+## 5. Firmware-compatible commands (the gate to any hardware work)
 
-**Decision.** This is the experiment most likely to give a positive "the
-model helps" result, and it is also what sim-to-real needs (Peng et al.
-2018; Molchanov et al. 2019).
+Retrain with collective thrust plus body-rate setpoints, with the firmware's
+rate controller modelled in the simulator, and repeat the Batch 2 tests. Then
+the supervised steps of `DEPLOYMENT_READINESS.md` (motor identification,
+radio-only test, tethered hover), each with Prof. Bellinger's approval.
 
-## 4. Train with policy-anchored planning (~8 h on Narval)
+## 6. Optional
 
-Only if step 1 confirms exploitation. Use `policy_prior_samples = 256`
-during data collection too, and compare sample efficiency and robustness
-with R1.
-
-## 5. Firmware-compatible action space (engineering, about a week)
-
-The current agents cannot fly a real Crazyflie (see
-`DEPLOYMENT_READINESS.md`). Change the simulator's action to collective
-thrust plus body-rate setpoints with a model of the firmware's rate
-controller, retrain, and repeat the Batch 2 tests and the software-in-the-
-loop check. Required before any hardware test. Needs Prof. Bellinger's
-agreement on scope.
-
-## 6. Training throughput (optional)
-
-Parallel drones give TD-MPC2 at most about 1.7x at its default of one update
-per step. To go further, test fewer updates per step with N drones (for
-example 16 drones, 1 update per 4 steps) and measure the cost in sample
-efficiency. This must be reported as a different algorithm from TD-MPC2.
-
-## 7. Smaller questions
-
-- **Longer planning horizon at test time** (5 or 10 steps instead of 3):
-  does looking further ahead help under disturbances, or do model errors
-  compound?
-- **Best checkpoint:** if the snapshot evaluation shows large swings between
-  checkpoints, add validation-based checkpoint selection to the standard
-  evaluation.
-- **PPO:** fix the two bugs (learning-rate units; full reset on automatic
-  reset) and rerun on random starts, only if a model-free comparison under
-  the same conditions is wanted for the thesis.
+- A fair PPO comparison (bugs fixed, random starts), if the thesis needs it.
+- Parallel drones with fewer updates per collected step, reported as a
+  variant of TD-MPC2.

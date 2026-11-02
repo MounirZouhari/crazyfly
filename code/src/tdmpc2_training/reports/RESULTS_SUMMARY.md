@@ -26,16 +26,21 @@ correlations of changes between -0.14 and +0.10).
   the held-out block (11 of 11 seeds).
 - Precision still varies: final success from the training area ranges from 8%
   to 100% across the 11 seeds, because the steady-state error sits a few cm
-  around the 10 cm threshold (4-8 cm for 8 seeds, 9-13 cm for 3).
+  around the 10 cm threshold.
 - It also drifts within a run: success from one 100k snapshot to the next
-  varies 5-7 times more than test noise allows, mostly as precision changes
-  (one seed had a snapshot with 44% crashes).
+  varies 5-7 times more than test noise allows, mostly as precision changes.
 - Choosing the snapshot on separate validation starts recovers most of it:
   97% test success from the training area at the validation-chosen snapshot
   vs 76% at the final one (11 seeds; +21 ± 11 points).
-- Hypothesis (from the reward): hovering at 5 cm instead of 15 cm earns only
-  0.001 more per step, so precision is weakly anchored. **Pending:** a 3-seed
-  pilot with an extra reward near the target.
+- The published model (R1) had not finished learning at 1M: its snapshots
+  rise almost steadily (26% at 600k, 42% at 1M). **Pending:** seeds 0-2
+  continued to 2M.
+- **Reward hypothesis rejected in its simple form (pilot, 3 seeds):** with a
+  reward ten times sharper within 5 cm of the target, the value network does
+  learn to prefer the target (it drops by 0.03-0.05 at 10 cm, against about
+  0.00 with the lab's reward), and no snapshot strayed above 20 cm (0 of 18,
+  vs 9 of 66 for D), but success still swings between snapshots (SD 0.25 vs
+  0.34) and the typical error is unchanged (about 9-10 cm).
 
 ## Q3. TD-MPC2 vs PPO: simulator steps and wall-clock time
 
@@ -61,58 +66,76 @@ for the small one. More needs fewer updates per step, a different algorithm.
 
 ## Q6. Learning from continuously randomised starts, and generalisation
 
-**Established for the small model; pending for the published one.**
-- Small model, 11 seeds, with planning: success / crashes 78 ± 10% / 0%
-  (training area), 83 ± 10% / 0% (held-out block, never trained on),
-  59 ± 9% / 3 ± 2% (0.25-0.75 m outside the area).
-- vs the Batch 1 single-start small agents: +59 [+35, +81], +72 [+48, +91],
-  +55 [+38, +72] points.
-- Interpolation works (held-out = training area); moderate extrapolation
-  mostly works, with lower precision.
-- **Pending:** R1 (published model, 11 seeds) and its single-start control C1.
+**Established for both model sizes.** Success / crashes with planning,
+training area / held-out block (never trained on) / outside:
+- small random-start agents (D, 11 seeds): 78/0, 83/0, 59/3%; at the
+  validation-chosen snapshot 97/0, 91/0, 70/2%;
+- published random-start agents (R1, 11 seeds): 46/0, 39/2, 20/26%; their
+  policy network alone 60/0, 64/0, 40/6%, and at its validation-chosen
+  snapshot 90/0, 81/0, 59/6%;
+- published single-start control (C1, 3 seeds): 26/35, 4/82, 0/92%.
+- R1 - C1: +20 [+1, +39], +34 [+17, +51], +20 [+9, +32] points; D - Batch 1
+  small: +59 [+35, +81], +72 [+48, +91], +55 [+38, +72].
+- C1 is indistinguishable from Batch 1 (+6, +2, -2 points), so the gain comes
+  from the random starts, not from the metric target offset.
+- Interpolation works (held-out = training area for both sizes);
+  extrapolation outside the area works partly, best for the small model.
+- At 1M steps the small model beats the published one with planning (-32 to
+  -44 points for R1), but R1 is still improving.
 
 ## Q7. When and why does the learned world model help?
 
-**Established on two contrasting cases.**
-- Single-start agents (published, 1M): planning hurts off the training start
-  (-26 [-46, -8] points; 66% vs 15% crashes from training-area starts). The
-  planner's flights go where the world model is 2.4-2.8x more wrong, errors
-  peak before crashes, and restraining the planner reduces crashes
-  (-19 ± 1 points) but not to the policy's level: model exploitation is one
-  mechanism, not the whole story.
-- Random-start agents (small, 11 seeds): planning adds +69 [+30, +96] points
-  over the policy network alone, which never crashes but rarely ends within
-  10 cm (median 21 cm vs 7 cm). The model is as accurate or more accurate
+**Established on three contrasting cases.**
+- Single-start agents (Batch 1 1M and C1): planning hurts off the training
+  start (-21 to -26 points; 35-66% crashes vs 15% for the policy from
+  training-area starts). The planner's flights go where the world model is
+  1.7-2.8x more wrong, errors peak before crashes, and restraining the planner
+  reduces crashes: model exploitation.
+- Small random-start agents (D): planning adds +69 [+30, +96] points over the
+  policy network alone (median error 7 vs 21 cm). The model is more accurate
   along the planner's flights (ratio 0.68 ± 0.09), and restraining the
-  planner only costs precision (-5 to -7 points).
-- So the model helps where its training data covers the situation (it turns
-  a safe but imprecise policy into precise control) and hurts where it does
-  not (the planner seeks out its errors).
-- **Pending:** the same tests on R1 and C1.
+  planner only costs precision.
+- Published random-start agents (R1): in between. Planning loses to the
+  policy network (-15 [-37, +10], -25 [-47, -1], -20 [-40, 0]); model error
+  ratio 1.17 / 1.49 / 2.00 (training area / held-out / outside); a narrower
+  search, more policy candidates, a 64x2 search or a shorter horizon all help.
+- So the model helps where its training data covers the situation and the
+  search does not over-optimise it; a harder search (512x6) and a model still
+  learning (R1 at 1M) bring exploitation back.
+- The value network is flat within about 20 cm of the target for D and R1
+  (value probe): the precision of planning comes from the world model's
+  predicted rewards over the 3-step horizon.
 
 ## Q8. Does planning improve robustness to disturbances?
 
-**Established for the small random-start agents; pending for R1, C1, H2.**
-- With planning, success holds under +5-15% mass (76-72%), -5-10% motor
-  strength (76-73%) and 20-40 ms command delay (77-76%), 61-68 points above
-  the policy network alone.
-- Wind: 60% success at 1 m/s, about 0% from 2 m/s; but no crashes up to
-  3 m/s (the drone is pushed off target and stays up).
-- Beyond: the planner crashes more than the policy at 4 m/s wind (41% vs 29%)
-  and 6 m/s gusts (67% vs 21%), consistent with Q7.
-- Single-start agents: the planner is worse than the policy under every
-  disturbance.
+**Established for D and R1; preliminary for C1 and H2.**
+- D: with planning, 72-77% success under +5-15% mass, -5-10% motor strength
+  and 20-40 ms command delay, 61-68 points above the policy network alone.
+  Wind: 60% at 1 m/s, about 0% from 2 m/s, no crashes up to 3 m/s. Beyond:
+  the planner crashes more (41 vs 29% at 4 m/s, 67 vs 21% in 6 m/s gusts).
+- R1: the planner is below its policy network under every disturbance
+  (-17 to -37 points); in 3 m/s wind it crashes in 32% of flights, the policy
+  network in 0%.
+- Single-start agents: the planner is worse under every disturbance.
+- H2 pilot (training with random mass, motors and wind): slightly fewer
+  crashes in strong wind (34 vs 41% at 4 m/s) but 13% success without
+  disturbance (D 78%), and the planner does not beat the policy. H2 is not
+  supported in this form; the agent likely needs a history of observations to
+  infer the conditions.
 
 ## Q9. Model size: speed, deployability, accuracy
 
-**Speed established; accuracy pending (R1).**
+**Established at 1M steps; the 2M continuation is pending.**
 - Per decision, GPU slice / 2 CPU cores: published planner 6.1 / 516 ms;
   small planner 1.4 / 11.4 ms; small 64x2 planner 1.5 / 4.4 ms; policy only
   0.2-0.4 ms. Control period 20 ms.
 - The small model trains 1.8x faster per step (88 vs 49 steps/s).
-- The 64x2 planner is as good as the full small planner (+2 [-2, +7] points).
-- Mid-run (850k), the small model was more precise than the published one at
-  equal steps. **Pending:** R1 final; R1 seeds 0-2 continued to 2M.
+- Accuracy at 1M: small planner 78% from the training area vs published
+  planner 46%; but the published policy network alone reaches 60% (90% at the
+  validation-chosen snapshot), while the small one reaches 9%.
+- Best deployable options: small model with planning (CPU, 11 ms, or 64x2 at
+  4.4 ms with the same success), or the published policy network alone
+  (0.3 ms, most robust to disturbances, needs checkpoint selection).
 
 ## Q10. What prevents safe sim-to-real transfer?
 

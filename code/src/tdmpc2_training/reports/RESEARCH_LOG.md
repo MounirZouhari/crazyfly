@@ -260,3 +260,48 @@ So anchoring the planner to the policy network's proposals removes most of its e
 - **Reading:** for random-start agents, planning keeps the precision under every moderate disturbance, but under strong wind (states never seen in training) it crashes more than the policy network alone, as H1 predicts. Compare the single-start 1M agents: planner 66-100% crashes in every wind condition vs policy 14-100%.
 
 **03:47: snapshots, all 11 small seeds.** Best snapshot chosen on validation vs final, test success: training area +21 ± 11 points (97% vs 76% on average), held-out +9 ± 10, outside +7 ± 8. Within-run SD of training-area success from 500k: 0.34 ± 0.03 (test noise alone: 0.04-0.07). Seed 9 behaves like the good seeds (final = best = 100%). Experiment D is complete except seed 9's policy-only snapshot test.
+
+**03:55: probing the value network near the target (`probe_value.py`, new; no flights).** The drone at rest and level on a grid of points within 30 cm of the target (three planes, 2 cm steps), exact observation (deploy adapter), previous command a plain hover; value = mean of the value networks for the policy's action. 9 snapshots of small random-start agents: precise ones (seed 10 at 400k, seed 8 at 700k, seed 2 at 400k, seed 5 at 1M; flown errors 3-7 cm) and imprecise ones (seed 10 and seed 8 at 1M, seed 2 at 500k, seed 3 at 500k and 1M; 10-56 cm).
+- In every snapshot the value is almost flat around the target: it changes by 0.000-0.004 within 10 cm and 0.003-0.012 within 20 cm, on a value of about 1.06-1.11. It is even slightly higher away from the target (the reward's improvement term lets a drone that is away still collect that distance), but a value that matched the rewards would rise by about 0.1 per 10 cm; the learned one rises by a few thousandths.
+- Precise and imprecise snapshots look the same, so the value's shape does not explain which checkpoints drift.
+- **Reading:** the value network does not resolve positions within about 20 cm of the target. The precision must come from the world model's predicted rewards summed over the planning horizon (the improvement term gives about 1 per metre over the 3 steps). This fits three results at once: the policy network alone, trained against the value, is imprecise (21 cm); a horizon of 1 step, which leans on the value, is much worse (-35 points); a horizon of 5 is slightly better (+11). It also supports the sharp-reward pilot: a reward that is steep within 5 cm gives both the predicted rewards and the value something to resolve.
+
+**08:45: final results of R1, C1, H2 and the reward pilot (pull + `analyze_all.sh`, 242 s, no errors).** 294 Slurm tasks completed since the launch, none failed; only the R1 extension (7669543 running, 7669544 queued) is left.
+
+**R1 final (published model, random starts, 11 seeds; 7659438 all exit 0).** Success / crashes:
+- with planning: training area 46 ± 8% / 0%, held-out 39 ± 9% / 2 ± 1%, outside 20 ± 6% / 26 ± 5%, Batch 1 starts 39 ± 10% / 0%;
+- policy network only: 60 ± 11% / 0%, 64 ± 13% / 0%, 40 ± 10% / 6 ± 2%, 65 ± 11% / 0%;
+- 64x2 planner: 58 ± 9% / 0%, 46 ± 12% / 0%, 32 ± 7% / 9 ± 2%.
+- vs C1 (with planning): +20 [+1, +39], +34 [+17, +51], +20 [+9, +32]; vs Batch 1 published 1M: +26 [+7, +45], +37 [+20, +52], +17 [+7, +30].
+- vs D (small model): -32 [-57, -5], -44 [-68, -18], -39 [-59, -18].
+- planner - policy (paired): -15 [-37, +10], -25 [-47, -1], -20 [-40, +0]; planner - 64x2: -12 [-24, +3], -8 [-24, +10], -12 [-18, -6].
+- Precision of full flights: planner 12.7 ± 1.5 cm (horizontal 12.4, vertical 1.6), policy 9.3 ± 1.4 cm, 64x2 9.9 ± 1.1 cm. Seeds: median late error 6.6-18.7 cm; 4 seeds above 15 cm.
+- The learning curves and the snapshots still rise at 1M (training-area success of the snapshots 0.26 at 600k, 0.34 at 900k, 0.42 at 1M; late error falling from about 20 to 13 cm): R1 has not finished learning. The extension to 2M (seeds 0-2) is the right test and keeps running.
+- **Reading:** random starts help the published model too (no crashes inside the area, +20 to +34 points over C1), but at 1M it is much less precise than the small model, and its full planner is worse than its own policy network and than a smaller search.
+
+**R1 follow-ups.**
+- Model error, planner / policy (paired): 1.17 ± 0.07 (training area), 1.49 ± 0.08 (held-out), 2.00 ± 0.14 (outside), and 4.4 times higher in the last 0.5 s before a crash. Between the small random-start agents (0.68) and the single-start agents (2.4-2.8).
+- Planner variants: narrower search +10 ± 3 / +11 ± 6 / +8 ± 4 points, half the candidates from the policy +13 ± 8 / +8 ± 9 / +12 ± 4; outside crashes fall from 26% to 15% and 10%. Restraining the search helps: some exploitation even inside the training distribution.
+- Horizon: 1 step -5 ± 6, 5 steps -0 ± 6, 10 steps -13 ± 7 (training area); in 3 m/s wind crashes grow with the horizon (11, 32, 41, 49% for 1, 3, 5, 10 steps).
+- Smoothing: averaged plan +2 ± 2 (keeps precision, saturation 46% -> 1%); 40 ms filter -11 ± 3 (unlike D, where it is free); motor lag 30 / 60 ms costs the planner 8 / 19 points but the policy network nothing (61, 61, 59%).
+- Disturbances: the planner is below the policy network under every condition (-17 to -37 points); in 3 m/s wind the planner crashes in 32% of the flights, the policy network in 0%.
+- Snapshots: best (validation) vs final, planner +7 ± 4 points (49% vs 42% from the training area). **Policy network alone at its validation-chosen snapshot: 90 ± 6% / 81 ± 11% / 59 ± 8% test success (training area / held-out / outside), 0 / 0 / 6% crashes, median late error 7.2 cm**, vs 60 / 62 / 39% at the final snapshot (+30 ± 9 points). This is as good as the small model's planner at its final snapshot, at 0.3 ms per decision instead of 11 ms on a CPU.
+- Value probe (seeds 7 and 3 at 1M): flat like the small model's (0.001-0.002 within 10 cm, 0.005-0.007 within 20 cm).
+
+**C1 final (published model, single start, metric target; 3 seeds).** Planning: 26 ± 7% / 35 ± 10% (training area), 4 ± 3% / 82 ± 11% (held-out), 0% / 92 ± 4% (outside). Policy network: 47 / 15%, 18 / 54%, 0 / 98%. C1 - Batch 1 published 1M: +6 [-9, +21], +2 [-3, +8], -2 [-3, +0]: the metric target offset changes nothing; R1's improvement comes from the random starts. Same exploitation signature as Batch 1 (planner / policy model error 1.68 ± 0.35; narrower search -10 points of crashes).
+
+**H2 final (small model, random starts + randomised mass, motors, wind; 3 seeds).**
+- Without disturbance: planning 13 ± 7% / 0% (training area), 7 ± 4% / 0% (held-out), 4 ± 4% / 0% (outside); policy network 34 ± 31% / 0%. Precision of full flights 14.3 ± 2.0 cm (planner), 12.5 ± 2.9 cm (policy), vs 7.4 cm for D.
+- H2 - D (planning): -65 [-86, -42], -76 [-94, -55], -55 [-73, -35].
+- In wind: crashes at 4 m/s 34% (D 41%), 6 m/s gusts 55% (D 67%); late error of full flights at 3 m/s 47 cm (D 67 cm). At 2-3 m/s no success for either.
+- Planner - policy: -21 [-80, +16] (3 seeds, wide).
+- **Reading:** H2 not supported in this pilot. Training on varied physics bought a little robustness in strong wind but cost most of the precision in calm air, and the planner does not beat the policy network. A likely reason: the agent sees no history, so it cannot tell which mass or wind it is flying in, and its world model predicts an average; that average is wrong in every particular case. Testing this needs a history or an estimate of the disturbance in the observation.
+
+**Reward pilot final (sharp reward near the target, small model, 3 seeds).**
+- Final snapshots: planning 37 ± 19% / 0% (training area), 66 ± 33% / 0% (held-out), 23 ± 17% / 2 ± 2% (outside); D - pilot +41 [+7, +78] from the training area. Seed 2's final snapshot is at 0%.
+- Best snapshot on validation: 91 ± 5% / 78 ± 19% / 47 ± 3% (D: 97 / 91 / 70%).
+- Drift from 500k: success SD 0.25 ± 0.04 (D 0.34 ± 0.03; test noise 0.06-0.07); median late error per snapshot 9.3 cm on average (D about 10 cm); late-error SD 2.6 ± 0.6 cm (D 11.0 ± 3.2 cm, driven by excursions); snapshots with a median error above 20 cm: 0 of 18 (D 9 of 66).
+- Value probe (6 snapshots): the value now peaks at the target: it drops by 0.03-0.05 at 10 cm and 0.07-0.13 at 20 cm (D: about 0.00), and its maximum is 2-3 cm from the target in 3 of 6 snapshots.
+- **Reading:** the extra reward is learned (the value now sees the target), and the large excursions of precision disappeared in these 3 seeds, but the typical precision and the swings of success around the 10 cm threshold are unchanged. So the flat value was not the cause of the drift. Not a cure; a pilot that narrows the search.
+
+**09:30: documents finished.** `GUIDE.pdf` complete with every final result (66 pages; Section 5.18 waits for the 2M run), `BATCH2_EXPLAINED.pdf` (a 14-page plain-language version: the experiment names, what each one is for, the results by question, where every file is), `RESULTS_SUMMARY.md`, `SUPERVISOR_UPDATE.md`, `NEXT_STEPS.md`, `HANDOFF.md`, registry statuses. Batch 2 copied to `/project` (scratch purge). Still running: R1 to 2M (7669543, then 7669544).
