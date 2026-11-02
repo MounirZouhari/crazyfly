@@ -344,6 +344,67 @@ def disturbance_lines(batches):
             for kind, (_, strengths, _) in DISTURBANCE_AXES.items():
                 cells += [np.nanmean([s.disturb_stat(rule, kind, x, "success") for s in seeds]) for x in strengths]
             lines.append(f"| {name} | {RULES[rule]} | " + " | ".join(f"{c:.0%}" for c in cells) + " |")
+    # How crashed flights ended (column added on Nov 2; older results lack it).
+    cause_rows = []
+    for name, seeds in batches:
+        for rule in ["planner", "policy_only"]:
+            rows = [r for s in seeds for r in s.disturb.get(rule, []) if r.get("end_cause")]
+            for label, kinds in [("no disturbance", {"none"}), ("wind and gusts", {"wind", "gust"}),
+                                 ("mass, motors, delay", {"mass", "motor", "delay"})]:
+                crashed = [r for r in rows if r["disturbance"] in kinds and r["crashed"] == "True"]
+                if crashed:
+                    out = np.mean([r["end_cause"] == "out_of_bounds" for r in crashed])
+                    cause_rows.append(f"| {name} | {RULES[rule]} | {label} | {len(crashed)} | {out:.0%} | {1 - out:.0%} |")
+    if cause_rows:
+        lines += ["", "How the crashed flights ended:", "",
+                  "| batch | decision rule | conditions | crashed flights | out of bounds | hit the ground |",
+                  "|---|---|---|---:|---:|---:|"] + cause_rows
+    return lines
+
+
+def bootstrap_ci(a, b=None, paired=False, n=10000, seed=0):
+    """Mean difference a - b (or mean of a) with a 95% percentile bootstrap interval over seeds.
+
+    paired=True: a and b come from the same seeds (resample seeds together).
+    Otherwise seeds are resampled within each batch separately.
+    """
+    rng = np.random.default_rng(seed)
+    a = np.asarray(a, dtype=float)
+    if b is None:
+        a = a[np.isfinite(a)]
+        boots = [rng.choice(a, len(a)).mean() for _ in range(n)]
+        return a.mean(), np.percentile(boots, 2.5), np.percentile(boots, 97.5)
+    b = np.asarray(b, dtype=float)
+    if paired:
+        d = a - b
+        d = d[np.isfinite(d)]
+        boots = [rng.choice(d, len(d)).mean() for _ in range(n)]
+        return d.mean(), np.percentile(boots, 2.5), np.percentile(boots, 97.5)
+    a, b = a[np.isfinite(a)], b[np.isfinite(b)]
+    boots = [rng.choice(a, len(a)).mean() - rng.choice(b, len(b)).mean() for _ in range(n)]
+    return a.mean() - b.mean(), np.percentile(boots, 2.5), np.percentile(boots, 97.5)
+
+
+def comparison_lines(batches):
+    """95% bootstrap intervals: first batch vs each other batch, and planner vs other rules within each batch."""
+    lines = ["", "## Statistical comparisons (95% bootstrap intervals over seeds)", "",
+             "Differences in success share (percentage points). Intervals from fewer than about 5 seeds are "
+             "unreliable.", "",
+             "| comparison | " + " | ".join(GROUPS) + " |", "|---|" + "---:|" * len(GROUPS)]
+    fmt = lambda m, lo, hi: f"{m * 100:+.0f} [{lo * 100:+.0f}, {hi * 100:+.0f}]"
+    main_name, main_seeds = batches[0]
+    for name, seeds in batches[1:]:
+        cells = [fmt(*bootstrap_ci([s.final_stat("planner", g, "success") for s in main_seeds],
+                                   [s.final_stat("planner", g, "success") for s in seeds])) for g in GROUPS]
+        lines.append(f"| {main_name} - {name} (with planning) | " + " | ".join(cells) + " |")
+    for name, seeds in batches:
+        for other in ["policy_only", "plan64x2"]:
+            if not all(other in s.final for s in seeds):
+                continue
+            cells = [fmt(*bootstrap_ci([s.final_stat("planner", g, "success") for s in seeds],
+                                       [s.final_stat(other, g, "success") for s in seeds], paired=True))
+                     for g in GROUPS]
+            lines.append(f"| {name}: planner - {RULES[other]} (paired) | " + " | ".join(cells) + " |")
     return lines
 
 
@@ -390,6 +451,7 @@ def write_summary(main_name, main_dir, seeds, median, batches, out_path):
         lines.append(f"| {s.number}{mark} | " + " | ".join(
             f"{s.final_stat('planner', g, 'success'):.0%}" for g in GROUPS)
             + f" | {s.final_stat('planner', 'train_area', 'late_error_survived'):.3f} |")
+    lines += comparison_lines(batches)
     lines += disturbance_lines(batches)
     lines += ["", "Plots: learning_curves_by_group.png, final_by_group.png"
               + (", comparison.png" if len(batches) > 1 else "")
