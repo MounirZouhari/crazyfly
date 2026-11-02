@@ -271,9 +271,23 @@ The seeds differ in one way only. Eight of the eleven succeed in 86-100% of the 
 
 **How it was tested.** The script `analyze_precision.py` takes the full flights (no crash) from the training-area and held-out starts and splits each one's late error into its horizontal part and its vertical part, and computes the height offset (above or below the target). It also plots, for every threshold from 0 to 50 cm, the share of flights that end within it, counting crashes as failures. This last figure shows the whole picture at once, without choosing a threshold.
 
-*Results pending.*
+**The result.** Median late error of the full flights, in centimetres (mean ± standard error across seeds):
 
-## 5.9 Why planning hurts single-start agents (H1)
+| Agents | Decision rule | Late error | Horizontal | Vertical | Height offset |
+|---|---|---:|---:|---:|---:|
+| small, random starts (11) | planning | 7.4 ± 0.9 | 7.1 ± 0.9 | 1.6 ± 0.3 | +1.1 ± 0.4 |
+| | policy network only | 20.6 ± 3.0 | 15.1 ± 1.8 | 11.9 ± 3.1 | +7.9 ± 4.2 |
+| | 64×2 planner | 7.8 ± 0.9 | 7.5 ± 0.9 | 1.7 ± 0.3 | +1.2 ± 0.4 |
+| published, single start, 1M (3) | planning | 10.2 ± 3.2 | 9.8 ± 2.8 | 1.6 ± 0.6 | +0.2 ± 0.4 |
+| | policy network only | 9.3 ± 2.4 | 8.9 ± 2.6 | 2.2 ± 0.4 | -1.1 ± 1.1 |
+
+[R1_PRECISION]
+
+![Share of flights ending within any distance of the target, from 0 to 50 cm, with crashes counted as failures (training-area and held-out starts; mean ± standard error across seeds). The dotted line is the 10 cm used for success. A curve that rises early and reaches 100% means precise and safe; a curve that stays low means crashes.](code/src/tdmpc2_training/reports/figures/thresholds.png)
+
+**What it means.** For the random-start agents, planning cuts the typical final error from about 21 cm to about 7 cm, and it does so in both directions: the policy network alone is off by 15 cm horizontally and 12 cm vertically, the planner by 7 and 2. The policy network alone also holds a wrong height, and the snapshots show that this offset changes from one checkpoint to the next, sometimes above the target and sometimes below, so it is not a fixed bias. A plausible explanation, not tested here, is that in TD-MPC2 the policy network's main job is to propose candidates for the planner: it learns roughly where the good actions are, and the planner's search against the world model's predicted rewards supplies the last few centimetres. The threshold figure shows that the conclusion does not depend on the 10 cm threshold: for the random-start agents, the planner's curve is above the policy network's at every threshold until both reach 100%, which they do because neither crashes. For the single-start agents the picture is reversed: the planner's curve stops at about 20%, because the other flights crashed.
+
+## 5.9 Why planning hurts single-start agents and helps random-start ones (H1)
 
 **The question.** Section 5.4 showed that planning makes the well-trained single-start agents crash more off their training start. The suspected mechanism is **model exploitation**: the planner searches for the action sequence that the world model rates best, and away from the training data the model is wrong in places; the search is drawn precisely to the actions for which the model is wrong in an optimistic direction, because those look best. The policy network does not search, so it is not drawn to these errors. Two tests checked this explanation.
 
@@ -301,7 +315,17 @@ The prediction holds for the agents where planning hurts: the planner's flights 
 
 All three seeds improved in the same way with both restrictions, which is why the standard errors of the changes are so small. For the small 50k agents, taking half the candidates from the policy reduced crashes by 3 to 7 points depending on the start group, and the narrower search by 0 to 4 points.
 
-**What it means.** Both tests support model exploitation as one real mechanism: the planner's flights go where the model is wrong, crashes follow large model errors, and restraining the search reduces crashes. But restraining the search does not bring the planner down to the policy network's crash rate (45% against 15%), so exploitation is not the whole story. The next suspect is the value function, which judges everything beyond the 3-step horizon and has also only been trained near the single start. The decisive question is what happens when the training data covers the test situations, which is what Batch 2 provides (Section 5.8).
+**What it means.** Both tests support model exploitation as one real mechanism: the planner's flights go where the model is wrong, crashes follow large model errors, and restraining the search reduces crashes. But restraining the search does not bring the planner down to the policy network's crash rate (45% against 15%), so exploitation is not the whole story. The next suspect is the value function, which judges everything beyond the 3-step horizon and has also only been trained near the single start.
+
+**The same tests when the data covers the situation (Batch 2).** If the explanation is right, agents trained from random starts should show none of this: their world model has seen the situations it is used in. That is exactly what the small random-start agents show (11 seeds):
+
+- Along the planner's flights, their world model is *more* accurate than along the policy network's (paired ratio 0.68 ± 0.09 from the training area, 0.67 ± 0.06 from the held-out block), and its error is 15 to 30 times smaller than that of the Batch 1 small agents.
+- Restraining the planner no longer prevents anything; it only costs precision: the narrower search loses 7 ± 6 points of success from the training area, and half the candidates from the policy network 5 ± 5 points.
+- The few crashes that remain, from starts outside the area (13 of 330 flights), are again preceded by a sharp rise of the model error (about 35 times its level in completed flights): where the model is wrong, the planner still fails.
+
+[R1_H1]
+
+**What it means, overall.** The world model is not good or bad in itself; what matters is whether it is used where it was trained. Off its data, the planner seeks out the model's mistakes and crashes; on its data, the planner turns an accurate model into precise control. This is the answer to the professor's question of when and why the model helps (Chapter 6, Q7).
 
 ## 5.10 Disturbances
 
@@ -351,7 +375,20 @@ The wind acts through the simulator's air model, so it pushes on the drone the w
 
 **How it was tested.** The script `eval_horizon.py` flies the same agents with planning horizons of 1, 3 (as trained), 5 and 10 steps, from the 50 training-area and 30 outside starts, without disturbance, in a 3 m/s steady wind and with 15% extra mass, always with the same sensor noise. Only the horizon used at test time changes; the agents are not retrained.
 
-*Results pending.*
+**The result for the small agents (11 seeds).** Success / crashes, with the paired change in success relative to the trained horizon of 3:
+
+| Horizon | Training area | Outside | Training area, +15% mass |
+|---:|---:|---:|---:|
+| 1 step | 43 ± 14% / 0% (-35 ± 13) | 31 ± 10% / 4% (-31 ± 9) | 43 ± 14% / 1% (-29 ± 12) |
+| 3 steps (as trained) | 78 ± 10% / 0% | 62 ± 10% / 4% | 72 ± 12% / 2% |
+| 5 steps | 89 ± 8% / 0% (+11 ± 7) | 69 ± 9% / 5% (+8 ± 4) | 83 ± 9% / 2% (+11 ± 6) |
+| 10 steps | 72 ± 9% / 0% (-6 ± 11) | 49 ± 10% / 11% (-12 ± 11) | 59 ± 9% / 3% (-14 ± 13) |
+
+In a 3 m/s steady wind, no horizon gives any success, and the crashes from outside starts grow with the horizon (7% at 1 or 3 steps, 18% at 10).
+
+[R1_HORIZON]
+
+**What it means.** Looking only one step ahead is clearly worse, probably because the planner then relies almost entirely on the value network, which judges a situation less precisely than a few steps of the world model's predictions do. Five steps is slightly better than the trained three (by about 10 points, but only about 1.5 standard errors, so this is a hint rather than a finding), and ten steps is no better in the training area while it doubles to triples the crashes from outside starts, where the world model's errors pile up over the longer horizon. For the Batch 1 single-start agent used to try out the test, every change from 3 steps was worse. The horizon that helps is therefore limited by how accurate the world model is: a model trained on varied data can look a little further ahead, a narrowly trained one cannot. For practical use, the trained horizon of 3 is a sound choice, and 5 could be tried.
 
 ## 5.15 How the drone flies: settling, smoothness and the worst flights
 
@@ -364,7 +401,17 @@ The wind acts through the simulator's air model, so it pushes on the drone the w
 - the **saturation**: the share of steps at which a command is at its limit (no thrust, full thrust, or a body moment at its maximum);
 - the **tail**: the 90th percentile and the worst late error of the full flights.
 
-*Results pending.*
+**The result.** For the 11 small random-start agents (training-area and held-out starts):
+
+| Decision rule | Within 20 cm after | Stays within 10 cm after | Thrust jitter | Moment jitter | Steps at a limit | 90th percentile of late error |
+|---|---:|---:|---:|---:|---:|---:|
+| with planning | 1.75 s | 6.7 s (79% of flights) | 29% | 33% | 49% | 10 cm |
+| policy network only | 2.15 s | 8.2 s (10% of flights) | 10% | 8% | 2% | 22 cm |
+| 64×2 planner | 1.75 s | 6.6 s (75% of flights) | 32% | 37% | 65% | 11 cm |
+
+[R1_QUALITY]
+
+**What it means.** The drone gets close quickly: within 20 cm in under 2 seconds, with or without planning. The last few centimetres take much longer, because the error hovers around the 10 cm line before settling, which is the same precision issue seen in Sections 5.7 and 5.12. The striking number is the jitter. In steady hover, the planner changes its thrust command by 29% of its full range from one step to the next, and half of all its commands sit at a limit (zero thrust, full thrust, or a maximal moment). The policy network alone is three to four times smoother. The tests use the planner exactly as it should be used for testing (the best candidate, no added noise), so this jumpiness is not a testing artefact; Section 5.16 explains where it comes from and tests whether it can be avoided.
 
 ## 5.16 Smoother commands and slower motors
 
@@ -372,7 +419,25 @@ The wind acts through the simulator's air model, so it pushes on the drone the w
 
 **How it was tested.** The script `eval_smoothing.py` flies the same agents, from the same 80 training-area and held-out starts with the same sensor noise, in four ways: the planner as trained; the first action of the planner's averaged plan; the planner's commands passed through a low-pass filter with a time constant of 40 ms (each command moves only part of the way towards the new one); and the policy network alone. Each is flown with instant motors, as in training, and with motors that follow the command with a first-order lag of 30 or 60 ms. These lags were chosen to test sensitivity; the real Crazyflie's motor response has not been measured in this project, so they are assumptions, not identified values. Nothing is retrained; only the way the trained agent acts, or the simulated motors, change.
 
-*Results pending.*
+Before the test was run, it was checked against the existing test code: with the policy network alone, its flights are identical to the disturbance tester's, step for step; with the planner as trained they are statistically identical (same success and crash rates over four noise seeds) but not bit-identical, because the two programs are compiled differently and round the last digit of some numbers differently, which the planner's choice between near-equal candidates then amplifies. Within the smoothing test, all variants run in the same compiled program, so their comparisons are exactly paired.
+
+**The result for the small agents (11 seeds).** Success / crashes from the training-area and held-out starts, with the paired change in success relative to the planner as trained at the same motor lag, the thrust jitter and the share of steps at a limit:
+
+| Motor lag | Decision rule | Success / crashes | Change vs planner | Thrust jitter | At a limit |
+|---|---|---:|---:|---:|---:|
+| none | planner as trained | 79 ± 10% / 0% | | 29% | 49% |
+| none | averaged plan | 80 ± 10% / 0% | +1 ± 1 | 23% | 1% |
+| none | planner, 40 ms filter | 79 ± 10% / 0% | +0 ± 1 | 8.5% | 2% |
+| none | policy network only | 9 ± 9% / 0% | -69 ± 18 | 10% | 2% |
+| 30 ms | planner as trained | 79 ± 10% / 0% | | 25% | 50% |
+| 30 ms | planner, 40 ms filter | 76 ± 11% / 1% | -2 ± 1 | 8.1% | 3% |
+| 60 ms | planner as trained | 77 ± 11% / 1% | | 23% | 52% |
+| 60 ms | averaged plan | 78 ± 10% / 1% | +1 ± 1 | 18% | 3% |
+| 60 ms | planner, 40 ms filter | 66 ± 12% / 3% | -11 ± 4 | 6.6% | 15% |
+
+[R1_SMOOTHING]
+
+**What it means.** The planner does not need its jumpy commands. Passing them through a 40 ms filter keeps exactly the same precision (+0 ± 1 points) while making the commands as smooth as the policy network's and removing almost all saturation; acting on the averaged plan also keeps the precision and removes the saturation, though the commands still change more from step to step. The agents also tolerate slow motors on their own: a 30 or 60 ms motor lag costs the planner at most 2 points. What does not work is stacking the two lags: the filter on top of 60 ms motors costs 11 points, because the delays add up. The practical rule is that the command filter should be sized together with the real motors, once their response has been measured. This is the most useful deployment result of the night: a simple, cheap change at decision time removes a problem that would otherwise make the planner unsuitable for real motors.
 
 ## 5.17 Speed: decision time, training time and parallel drones
 

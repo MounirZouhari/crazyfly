@@ -245,3 +245,16 @@ So anchoring the planner to the policy network's proposals removes most of its e
 - planner - policy (paired): +69 [+30, +96], +74 [+36, +98], +48 [+18, +72].
 - Seeds: 8 of 11 at 86-100% from the training area (median late error 4-8 cm); seeds 3, 8, 10 at 54%, 20%, 8% with no crashes (9-13 cm). The first three pilot seeds (95%) were among the good ones; the full set is lower, which is why the scale-up mattered.
 - Precision of full flights (training area + held-out): planner 7.4 ± 0.9 cm (horizontal 7.1, vertical 1.6), policy 20.6 ± 3.0 cm (horizontal 15.1, vertical 11.9; height offset +7.9 ± 4.2 cm, but its sign changes between snapshots), 64x2 7.8 ± 0.9 cm.
+
+**03:35: snapshots of 10 small seeds (seed 9 pending).**
+- Within-run SD of training-area success from 500k on: 0.10-0.48 per seed, against 0.04-0.07 expected from 50 flights. The swings are real changes of the agent.
+- Mostly precision: the median late error of full flights moves between about 4 and 15 cm, sometimes 20-60 cm. Crashes are rare, but not absent: seed 6's 500k snapshot crashed in 44% of the training-area flights (median error 89 cm), then recovered.
+- **Best snapshot chosen on the 40 validation starts vs the final one** (test starts): training area +23 ± 12 points, held-out +10 ± 11, outside +8 ± 9. Mean test success from the training area: 96% at the validation-chosen snapshots vs 74% at the final ones. It rescues exactly the weak seeds: seed 8 14% -> 100%, seed 10 2% -> 100%, seed 3 44% -> 76%.
+- Policy network alone: best vs final +32 ± 14 points, but from a low level (its error averages 25 cm from 500k on).
+- **Reading:** longer training does not remove the within-run drift; choosing the checkpoint on validation starts does most of the job, at the cost of testing every snapshot.
+
+**03:40: disturbances, small random-start agents (11 seeds, 50 training-area starts).**
+- Success with planning: none 77%; wind 1 / 2 / 3 / 4 m/s: 60 / 1 / 0 / 0%; gusts 2 / 4 / 6 m/s: 66 / 15 / 0%; mass x1.05 / 1.10 / 1.15: 76 / 74 / 72%; motors x0.95 / 0.90: 76 / 73%; delay 20 / 40 ms: 77 / 76%. Policy alone: 9-10% everywhere (18% at 1 m/s wind).
+- Planning minus policy (paired): +61 to +68 points under mass, motor and delay changes, +42 [+14, +69] at 1 m/s wind, +57 [+16, +91] for 2 m/s gusts.
+- Crashes: none for either rule up to 3 m/s wind and 2 m/s gusts (0-1%; the drone is pushed off target but stays up). Beyond: planner 41% vs policy 29% at 4 m/s wind, 67% vs 21% for 6 m/s gusts; 71% of the planner's wind crashes are out of bounds.
+- **Reading:** for random-start agents, planning keeps the precision under every moderate disturbance, but under strong wind (states never seen in training) it crashes more than the policy network alone, as H1 predicts. Compare the single-start 1M agents: planner 66-100% crashes in every wind condition vs policy 14-100%.

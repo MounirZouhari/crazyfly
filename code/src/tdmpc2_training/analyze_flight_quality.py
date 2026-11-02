@@ -8,6 +8,8 @@ From the repository root:
 Reads the step-by-step trajectories.csv of the final tests (with planning,
 policy network only, 64x2 planner) of the training-area and held-out starts.
 For every seed (then mean +/- standard error across seeds):
+  reach        median time to first come within 20 cm of the target, over
+               the full flights (s)
   settle       median time after which the drone stays within 10 cm of the
                target until the end, over the flights that get there (s)
   settled      share of flights that settle at all
@@ -57,12 +59,15 @@ def seed_quality(folder):
         if group_of(row["start"]) in GROUPS:
             steps[int(row["flight"])].append((float(row["error_m"]), float(row["thrust"]), float(row["roll"]),
                                               float(row["pitch"]), float(row["yaw"])))
-    settle, settled, thrust_jitter, moment_jitter, saturated = [], [], [], [], []
+    settle, settled, reach, thrust_jitter, moment_jitter, saturated = [], [], [], [], [], []
     for flight, rows in steps.items():
         data = np.array(rows)
         error, thrust, moments = data[:, 0], data[:, 1] / THRUST_MAX_N, data[:, 2:5]
         outside = np.flatnonzero(error >= TOLERANCE_M)
         if flight in late:                       # full flight
+            near = np.flatnonzero(error < 2 * TOLERANCE_M)
+            if len(near):
+                reach.append((near[0] + 1) * CONTROL_DT_S)
             if len(outside) == 0:
                 settle.append(0.0)
             elif outside[-1] < len(error) - 1:
@@ -73,7 +78,8 @@ def seed_quality(folder):
             moment_jitter.append(100 * np.mean(np.abs(np.diff(moments[steady], axis=0))) / 2)
         saturated.append(np.mean((thrust <= 0.01) | (thrust >= 0.99) | np.any(np.abs(moments) >= 0.98, axis=1)))
     errors = np.array(list(late.values())) * 100
-    return {"settle": float(np.median(settle)) if settle else float("nan"),
+    return {"reach": float(np.median(reach)) if reach else float("nan"),
+            "settle": float(np.median(settle)) if settle else float("nan"),
             "settled": float(np.mean(settled)) if settled else float("nan"),
             "thrust_jitter": float(np.mean(thrust_jitter)) if thrust_jitter else float("nan"),
             "moment_jitter": float(np.mean(moment_jitter)) if moment_jitter else float("nan"),
@@ -90,13 +96,13 @@ def main():
     os.makedirs(args.out, exist_ok=True)
 
     lines = ["# Flight quality (training-area and held-out starts, final agents)", "",
-             "Mean ± SE across seeds of each seed's value. settle: median time to stay within 10 cm until the end "
-             "(s); settled: share of full flights that do; jitter: mean step-to-step change of the command in the "
-             "last 5 s, % of its range; saturated: % of steps with a command at its limit; p90 and worst: late "
-             "error of full flights (cm).", "",
-             "| batch | decision rule | seeds | settle (s) | settled | thrust jitter (%) | moment jitter (%) | "
-             "saturated (%) | p90 late error (cm) | worst late error (cm) |",
-             "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+             "Mean ± SE across seeds of each seed's value. reach: median time to first come within 20 cm (s); "
+             "settle: median time to stay within 10 cm until the end (s); settled: share of full flights that do; "
+             "jitter: mean step-to-step change of the command in the last 5 s, % of its range; saturated: % of "
+             "steps with a command at its limit; p90 and worst: late error of full flights (cm).", "",
+             "| batch | decision rule | seeds | reach 20 cm (s) | settle (s) | settled | thrust jitter (%) | "
+             "moment jitter (%) | saturated (%) | p90 late error (cm) | worst late error (cm) |",
+             "|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|"]
     for batch in args.batches:
         prefix = "evaluation_batch2_tests" if batch.name.startswith("batch1") else "evaluation"
         for rule in RULES:
@@ -106,7 +112,7 @@ def main():
             if not per_seed:
                 continue
             cell = lambda key, fmt: "{} ± {}".format(*(format(v, fmt) for v in mean_se([s[key] for s in per_seed])))
-            lines.append(f"| {batch.name} | {RULES[rule]} | {len(per_seed)} | {cell('settle', '.2f')} | "
+            lines.append(f"| {batch.name} | {RULES[rule]} | {len(per_seed)} | {cell('reach', '.2f')} | {cell('settle', '.2f')} | "
                          f"{cell('settled', '.0%')} | {cell('thrust_jitter', '.2f')} | {cell('moment_jitter', '.2f')} | "
                          f"{cell('saturated', '.1f')} | {cell('p90', '.1f')} | {cell('worst', '.1f')} |")
     (args.out / "summary.md").write_text("\n".join(lines) + "\n")
