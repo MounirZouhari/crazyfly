@@ -10,8 +10,10 @@ every snapshot (100k, 200k, ... 1M). The best snapshot is chosen on
 validation success only (ties go to the later snapshot); its test success is
 compared with the final snapshot's. Within-run change: the standard deviation
 of a seed's train_area success across snapshots from 500k on, compared with
-the binomial noise expected from 50 flights at that success rate.
-Writes summary.md and snapshots.png.
+the binomial noise expected from 50 flights at that success rate, and what
+the change consists of: the median late error of the full flights and the
+crash share at each of those snapshots.
+Writes <folder>.md and <folder>.png.
 """
 import argparse
 import csv
@@ -37,6 +39,20 @@ def success_table(path):
     return {step: {g: float(np.mean(v)) for g, v in groups.items()} for step, groups in hits.items()}
 
 
+def error_table(path, group="train_area"):
+    """{step: (median late error of the full flights in m, crash share)} for one start group."""
+    rows = defaultdict(list)
+    for r in csv.DictReader(open(path)):
+        if r["test_set"] == group:
+            rows[int(r["checkpoint_step"])].append(r)
+    table = {}
+    for step, flights in rows.items():
+        full = [float(r["late_error_m"]) for r in flights if r["crashed"] == "False"]
+        table[step] = (float(np.median(full)) if full else float("nan"),
+                       float(np.mean([r["crashed"] == "True" for r in flights])))
+    return table
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("batches", type=Path, nargs="+")
@@ -47,20 +63,22 @@ def main():
 
     lines = [f"# Snapshots: best (chosen on validation) vs final ({args.folder})", "",
              "Success = full 10 s flight with late error below 10 cm.", ""]
-    fig, axes = plt.subplots(len(args.batches), 4, figsize=(16, 3.3 * len(args.batches)), squeeze=False, sharey=True)
+    fig, axes = plt.subplots(len(args.batches), 5, figsize=(20, 3.3 * len(args.batches)), squeeze=False)
     for row_axes, batch in zip(axes, args.batches):
-        seeds = {}
+        seeds, errors = {}, {}
         for run in sorted(batch.glob("seed_*")):
             path = run / args.folder / "summary.csv"
             if path.exists():
                 seeds[run.name] = success_table(path)
+                errors[run.name] = error_table(path)
         if not seeds:
             lines.append(f"{batch.name}: no snapshot results yet")
             continue
         lines += [f"## {batch.name} ({len(seeds)} seeds)", "",
                   "| seed | best step (validation) | test success at best: train_area / held_out / outside | "
-                  "at final | within-run SD of train_area success (>= 500k) | binomial SD expected |",
-                  "|---|---:|---|---|---:|---:|"]
+                  "at final | within-run SD of train_area success (>= 500k) | binomial SD expected | "
+                  "train_area median late error of full flights, >= 500k (cm) | highest crash share, >= 500k |",
+                  "|---|---:|---|---|---:|---:|---|---:|"]
         gains = defaultdict(list)
         for name, table in seeds.items():
             steps = sorted(table)
@@ -69,9 +87,13 @@ def main():
             late = [table[s]["train_area"] for s in steps if s >= 500_000]
             p = float(np.mean(late)) if late else float("nan")
             fmt = lambda s: " / ".join(f"{table[s].get(g, float('nan')):.0%}" for g in GROUPS[1:])
+            late_errors = [100 * errors[name][s][0] for s in steps if s >= 500_000 and s in errors[name]]
+            late_crashes = [errors[name][s][1] for s in steps if s >= 500_000 and s in errors[name]]
             lines.append(f"| {name} | {best // 1000}k | {fmt(best)} | {fmt(final)} | "
                          f"{np.std(late, ddof=1) if len(late) > 1 else float('nan'):.3f} | "
-                         f"{np.sqrt(p * (1 - p) / 50) if np.isfinite(p) else float('nan'):.3f} |")
+                         f"{np.sqrt(p * (1 - p) / 50) if np.isfinite(p) else float('nan'):.3f} | "
+                         + (" ".join(f"{e:.0f}" for e in late_errors) or "-") + " | "
+                         + (f"{max(late_crashes):.0%}" if late_crashes else "-") + " |")
             for g in GROUPS[1:]:
                 gains[g].append(table[best].get(g, np.nan) - table[final].get(g, np.nan))
         lines.append("")
@@ -91,6 +113,15 @@ def main():
             ax.grid(alpha=0.3)
             ax.spines[["top", "right"]].set_visible(False)
         row_axes[0].set_ylabel("success share")
+        ax = row_axes[4]
+        for name, table in errors.items():
+            steps = sorted(table)
+            ax.plot(np.array(steps) / 1000, [100 * table[s][0] for s in steps], lw=1, alpha=0.7)
+        ax.axhline(100 * TOLERANCE_M, color="grey", ls=":", lw=1)
+        ax.set_yscale("log")
+        ax.set_title(f"{batch.name}: train_area median late error (cm)", fontsize=9)
+        ax.grid(alpha=0.3)
+        ax.spines[["top", "right"]].set_visible(False)
     for ax in axes[-1]:
         ax.set_xlabel("training steps (thousands)")
     axes[0][0].legend(frameon=False, fontsize=8)
