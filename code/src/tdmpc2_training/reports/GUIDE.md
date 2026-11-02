@@ -152,6 +152,7 @@ The measures were fixed before any Batch 2 result was seen: **success** (full fl
 | H1 | world-model error and planner variants | all agents | why does planning hurt single-start agents? |
 | Dist. | wind, gusts, mass, motors, delay | all agents | robustness, with and without planning |
 | Snap. | every 100k-step snapshot | all Batch 2 runs | swings within a run, best vs final checkpoint |
+| Hor. | planning horizon 1, 3, 5, 10 at test time | all Batch 2 agents | would looking further ahead help? |
 
 ## 4.6 How the code was checked before anything ran
 
@@ -170,7 +171,146 @@ The experiments ran on the Digital Research Alliance cluster **Narval**, each on
 
 # 5. Results, experiment by experiment
 
-*This chapter is completed once all results are in.*
+## 5.1 How to read this chapter
+
+Every section follows the same pattern: the question, how it was tested, what came out, and what it means. Tables give **success / crash** shares as mean ± standard error across seeds; each seed is first averaged over its own flights, so every seed counts equally. Differences between two decision rules are **paired**: the same agents, the same starts and the same sensor noise, so that only the decision rule differs. Where a difference matters, its 95% bootstrap confidence interval is given in square brackets.
+
+The sections go from the past to the present. Sections 5.2 to 5.4 look back at Batch 1 with new tests. Sections 5.5 to 5.8 present the main Batch 2 results: learning to hover from anywhere. Sections 5.9 to 5.13 explain when and why the world model helps or hurts. Section 5.14 covers speed.
+
+## 5.2 Was the Batch 1 spread between seeds real? (A1)
+
+**The question.** In Batch 1, the 11 small agents trained on Narval ended anywhere between 6.5 cm and 1.05 m from the target. Each agent had been tested with only 3 flights. There were two possible explanations. Either the agents really were different, because training with different seeds had produced controllers of different quality; or they were similar, and each test flight was so noisy (because of the sensor noise) that 3 flights could not tell them apart. The professor found the spread unusual for TD-MPC2, so it was important to know which explanation was right.
+
+**How it was tested.** Every one of the 33 Batch 1 final agents (11 small agents from Narval, 11 small agents from the home PC, 11 published-size agents at 50k steps) flew 20 more flights from its training start: 5 different sensor-noise seeds with 4 flights each, the same noises for every agent. The spread of the late errors was then split into two parts with a one-way analysis of variance: the part between seeds (how different the agents are) and the part within seeds (how much the same agent varies from flight to flight). The **intraclass correlation (ICC)** is the share of the first part in the total.
+
+| Agents | Between-seed SD | Within-seed SD | ICC |
+|---|---:|---:|---:|
+| small, Narval (11) | 0.32 m | 0.09 m | 0.93 |
+| small, home (11) | 0.63 m | 0.16 m | 0.94 |
+| published, 50k (11) | 0.38 m | 0.36 m | 0.52 |
+
+![Each grey dot is one of the 20 re-flights of an agent, each blue dot that agent's mean. For the small agents (left and middle), the dots of one agent sit tightly together while the agents differ widely: the spread is a property of the agents. The published-size 50k agents (right) crash so often that each agent's flights also vary a lot.](code/src/tdmpc2_training/reports/figures/a1_seed_variance.png)
+
+**What it means.** For the small agents, 93-94% of the spread comes from the agents themselves. The test was not the problem; the training was. One agent from the home PC (seed 0) ends 2.3 m from the target in all 20 re-flights: it is a stable failure of that agent, not bad luck. Together with the learning curves, which were still improving at 50k steps, and with the three 1M-step runs, which all converged to between 5.7 and 8.6 cm, this supports the professor's suspicion: at 50k steps, training had not finished, and each seed was caught at a different point of its learning. This is why every Batch 2 run trains for 1M steps.
+
+## 5.3 Do the training losses explain the swings within a run? (A2)
+
+**The question.** Even the 1M-step runs did not improve smoothly. After a run first hovered within 10 cm, between 13% and 39% of its later test points were worse than 10 cm again. TD-MPC2 logs several training statistics (the losses of the world model, the value and the policy). If these statistics rose whenever the flying got worse, they could be used to detect bad moments and stop training at a good one.
+
+**How it was tested.** For each of the three 1M-step runs, every test point after the run first hovered (165 to 180 points per run) was paired with the average of each logged statistic over the 5,000 steps before it. A **Spearman correlation** then measured whether changes in the test error go together with changes in the statistic, and a **permutation test** checked whether the correlation could be due to chance.
+
+**The result.** None of the statistics tracks the swings: all correlations between changes lie between -0.14 and +0.10, and none is statistically significant (the smallest permutation p-value is 0.075, even before correcting for having tested 18 correlations).
+
+![Test error of the three 1M-step runs during training, with the logged training statistics. The swings in the test error have no counterpart in the losses.](code/src/tdmpc2_training/reports/figures/a2_fluctuations.png)
+
+**What it means.** The losses measure how well the networks predict, not how well the drone flies. A world model can predict its training data slightly better or worse without the controller changing in any visible way, and the controller can get worse without the losses noticing. This is known as **objective mismatch** (Lambert et al., 2020). The practical consequence is that the only reliable way to know how good an agent is, is to fly it. Batch 2 therefore keeps a snapshot every 100k steps and has a separate set of validation starts for choosing a checkpoint (Section 5.12).
+
+## 5.4 The Batch 1 agents on the new test starts (R4)
+
+**The question.** How do controllers trained from a single start fly from the new Batch 2 test starts? This is the "before" picture against which Batch 2 is judged.
+
+**How it was tested.** All 25 Batch 1 TD-MPC2 agents flew the 128 Batch 2 test flights (Section 4.3), once with planning and once with the policy network only, with the same sensor noise.
+
+| Agents | Decision rule | Training area | Held-out block | Outside | Batch 1 starts |
+|---|---|---:|---:|---:|---:|
+| published, 1M (3) | planning | 20 ± 6% / 66 ± 3% | 2 ± 2% / 91 ± 9% | 2 ± 1% / 87 ± 5% | 20 ± 7% / 59 ± 4% |
+| | policy only | 46 ± 12% / 15 ± 7% | 22 ± 17% / 54 ± 14% | 0 ± 0% / 77 ± 11% | 33 ± 17% / 6 ± 6% |
+| published, 50k (11) | planning | 0 ± 0% / 98 ± 1% | 0 ± 0% / 98 ± 1% | 0 ± 0% / 100 ± 0% | 0 ± 0% / 87 ± 3% |
+| | policy only | 1 ± 1% / 76 ± 8% | 0 ± 0% / 87 ± 4% | 0 ± 0% / 82 ± 6% | 0 ± 0% / 67 ± 11% |
+| small, 50k (11) | planning | 19 ± 7% / 9 ± 3% | 11 ± 5% / 15 ± 7% | 4 ± 1% / 31 ± 6% | 18 ± 7% / 6 ± 3% |
+| | policy only | 4 ± 4% / 6 ± 4% | 4 ± 4% / 1 ± 1% | 0 ± 0% / 17 ± 5% | 2 ± 2% / 2 ± 2% |
+
+**What it means.** Controllers trained from one start do not generalise: even the published-size agents trained for 1M steps succeed in only 20% of the flights from the training area and almost never from the held-out block or outside. The surprise is in the second row. With the policy network alone, the same agents crash far less from the training area (15% instead of 66%), and they succeed more often: planning costs them 26 points of success there (paired difference -26 [-46, -8]). In other words, for these agents, the world model makes things worse away from the start they trained on. For the small 50k agents the picture is different: planning neither clearly helps nor clearly hurts (+14 [-2, +31] points from the training area), because their policy networks alone are imprecise. Section 5.9 investigates why planning hurts the well-trained single-start agents.
+
+## 5.5 Learning to hover from anywhere: the published model (R1)
+
+*Results pending (final tests at about 04:45).*
+
+## 5.6 The single-start control (C1)
+
+*Results pending.*
+
+## 5.7 The small model (D)
+
+*Results pending (11 seeds at about 03:15).*
+
+## 5.8 With and without planning: where the precision comes from
+
+*Results pending.*
+
+## 5.9 Why planning hurts single-start agents (H1)
+
+**The question.** Section 5.4 showed that planning makes the well-trained single-start agents crash more off their training start. The suspected mechanism is **model exploitation**: the planner searches for the action sequence that the world model rates best, and away from the training data the model is wrong in places; the search is drawn precisely to the actions for which the model is wrong in an optimistic direction, because those look best. The policy network does not search, so it is not drawn to these errors. Two tests checked this explanation.
+
+**Test 1: how wrong is the world model along the flights?** The script `model_error.py` records every test flight and then asks the agent's own world model to predict, from each recorded state, the next three latent states and rewards given the actions that were actually taken. The difference between prediction and reality is the **model error** along that flight. If the planner exploits model errors, its flights should visit states where the model is more wrong than along the policy network's flights from the same starts, and the error should be largest just before crashes.
+
+| Agents | Starts | Planner / policy model error (paired) | Last 0.5 s before a crash vs completed flights |
+|---|---|---:|---:|
+| published, 1M (3) | training area | 2.8 ± 0.7 | 4.0 times |
+| | held-out block | 2.4 ± 0.2 | |
+| small, 50k (11) | training area | 1.4 ± 0.3 | 7.1 times |
+| published, 50k (11) | training area | 1.3 ± 0.1 | 1.1 times |
+
+![The world model's 3-step prediction error along test flights, with planning (blue) and with the policy network only (orange). For the published 1M agents (left), the planner's flights go where the model is 2-3 times more wrong.](code/src/tdmpc2_training/reports/figures/h1_model_error_batch1.png)
+
+The prediction holds for the agents where planning hurts: the planner's flights go where the model is 2.4 to 2.8 times more wrong, and the error rises sharply in the half second before a crash. The published 50k agents fit the same picture from the other side: they crash almost always, with or without planning, and their model is about equally poor along both kinds of flights.
+
+**Test 2: does keeping the planner closer to the policy reduce crashes?** If exploitation causes the crashes, restricting how far the planner can search away from what the policy network proposes should reduce them. The script `eval_planner_variants.py` flies the same agents, from the same starts and with the same noise, with four decision rules that differ only at test time: the policy network alone, the planner as trained, the planner with a narrower search (`max_plan_std` 0.5 instead of 2), and the planner with half of its 512 candidates proposed by the policy network instead of 24.
+
+| Published 1M agents, training-area starts | Success | Crashes | Change vs planner |
+|---|---:|---:|---|
+| planner as trained | 24 ± 8% | 63 ± 6% | |
+| narrower search | 33 ± 9% | 50 ± 7% | +9 ± 2 / -13 ± 1 points |
+| half the candidates from the policy | 39 ± 6% | 45 ± 6% | +15 ± 2 / -19 ± 1 points |
+| policy network only | 45 ± 10% | 15 ± 7% | +21 ± 8 / -49 ± 12 points |
+
+All three seeds improved in the same way with both restrictions, which is why the standard errors of the changes are so small. For the small 50k agents, taking half the candidates from the policy reduced crashes by 3 to 7 points depending on the start group, and the narrower search by 0 to 4 points.
+
+**What it means.** Both tests support model exploitation as one real mechanism: the planner's flights go where the model is wrong, crashes follow large model errors, and restraining the search reduces crashes. But restraining the search does not bring the planner down to the policy network's crash rate (45% against 15%), so exploitation is not the whole story. The next suspect is the value function, which judges everything beyond the 3-step horizon and has also only been trained near the single start. The decisive question is what happens when the training data covers the test situations, which is what Batch 2 provides (Section 5.8).
+
+## 5.10 Disturbances
+
+*Results pending.*
+
+## 5.11 Training on varied physics (H2)
+
+*Results pending.*
+
+## 5.12 Snapshots: change during training, and the best versus the final checkpoint
+
+*Results pending.*
+
+## 5.13 The planning horizon
+
+*Results pending.*
+
+## 5.14 Speed: decision time, training time and parallel drones
+
+**Decision time.** A real controller must decide within the 20 ms control period. The script `bench_latency.py` timed 1,000 decisions (300 on the CPU) for each network size and planning budget, on a Narval GPU slice and on 2 CPU cores of the same machine (median times):
+
+| Network | Decision rule | GPU slice | 2 CPU cores |
+|---|---|---:|---:|
+| published (5.0M weights) | planner 512×6 | 6.1 ms | 516 ms |
+| published | planner 64×2 | 1.9 ms | 28 ms |
+| small (0.39M weights) | planner 128×3 | 1.4 ms | 11.4 ms |
+| small | planner 64×2 | 1.5 ms | 4.4 ms |
+| either | policy network only | 0.3-0.4 ms | 0.2 ms |
+
+The published planner fits the 20 ms budget easily on a GPU but is about 25 times too slow on a CPU; the small planner fits on a CPU with some margin; the policy network alone is negligible anywhere. On a GPU, the time grows much more slowly than the amount of arithmetic: the 512×6 planner of the published model computes 13 times more than its 64×2 planner but takes only about 3 times longer. Most of the time goes into launching many small operations one after the other, not into computing.
+
+**Training time.** The script `profile_training.py` measured where one training step goes on a Narval GPU slice. For the published model: simulating the one drone takes 6.8 ms, planning its action 10.2 ms, and the learning update 2.6 ms, which together give 49 steps per second, or about 5.6 hours of pure training for 1M steps (the real runs took about 7 hours, with the test flights every 25k steps and the checkpoints). For the small model: 6.6, 1.4 and 2.7 ms, 88 steps per second. The GPU is mostly waiting: each operation is small (one drone), so the time goes into starting operations rather than computing. This answers the professor's question about GPU use: TD-MPC2 with one drone cannot keep a GPU busy (at home the GPU was busy only 25-28% of the time; on Narval's slices the usage counter is not available).
+
+**Parallel drones (E).** PPO is fast in real time because it simulates 2,048 drones at once. Could TD-MPC2 do the same? The script `bench_parallel.py` timed simulation, planning and updates with 1 to 128 drones and projected the training speed:
+
+![Projected training speed of the published TD-MPC2 with many drones on a Narval GPU slice. Simulation is free (the same 6 ms for 1 or 128 drones), but planning grows with the number of drones, and one learning update per collected step caps the speed.](code/src/tdmpc2_training/reports/figures/e_parallel_published.png)
+
+| Drones | Published, 1 update per step | Small, 1 update per step | Small, 1 update per 2 steps |
+|---:|---:|---:|---:|
+| 1 | 45 steps/s | 93 steps/s | 111 steps/s |
+| 8 | 68 | 223 | 368 |
+| 128 | 74 | 271 | 517 |
+
+The 1-drone projections match the measured training speeds, so the projection can be trusted. Simulation parallelises perfectly, but TD-MPC2 must still plan for every drone and, by default, make one learning update for every step collected. Parallel drones therefore speed it up by only 1.6 times (published) to 2.9 times (small). Going further requires fewer updates per step, which changes the algorithm and would have to be checked for its effect on learning.
 
 # 6. Answers to Professor Bellinger's questions
 
@@ -242,7 +382,7 @@ A **test** of a saved agent (any of the `eval_*.py` scripts) rebuilds the agent 
 ## 7.6 Analysis
 
 - **`analyze_batch2.py`**: the main Batch 2 analysis: learning curves per test group, final results per group and decision rule, comparisons between experiments with bootstrap confidence intervals, disturbance results and crash causes.
-- **`analyze_snapshots.py`**, **`analyze_model_error.py`**, **`analyze_planner_variants.py`**: summaries of the corresponding tests across seeds.
+- **`analyze_snapshots.py`**, **`analyze_model_error.py`**, **`analyze_planner_variants.py`**, **`analyze_horizon.py`**: summaries of the corresponding tests across seeds.
 - **`variance_decomposition.py`** (A1) and **`fluctuation_analysis.py`** (A2): the two analyses of Batch 1 variability.
 - **`analyze_seeds.py`** and **`compare_methods.py`**: the Batch 1 plots and the TD-MPC2 vs PPO comparison.
 
@@ -271,7 +411,7 @@ A **test** of a saved agent (any of the `eval_*.py` scripts) rebuilds the agent 
 
 - `python.sh`: runs Python inside the container that provides the exact package versions (`requirements-lock.txt`), installed once by `setup_env.sh`.
 - `seed_job.sh`: trains and tests one seed per array task, optionally in pieces (`SKIP_TESTS`) and with the extra tests without planning (`DEPLOYMENT_TESTS`).
-- `eval_job.sh`, `disturb_job.sh`, `snapshot_job.sh`, `model_error_job.sh`, `variants_job.sh`: run the corresponding test on a list of runs, one per array task.
+- `eval_job.sh`, `disturb_job.sh`, `snapshot_job.sh`, `model_error_job.sh`, `variants_job.sh`, `horizon_job.sh`: run the corresponding test on a list of runs, one per array task.
 - `profile_job.sh`, `parallel_job.sh`, `test_job.sh`: speed measurements.
 - `ppo_job.sh`: the historical PPO runs.
 - `pull_results.sh`: copies all results from Narval to the home PC, without the large checkpoints.
@@ -334,7 +474,30 @@ bash code/src/tdmpc2_training/cluster/pull_results.sh
 
 # 8. Limitations
 
-*This chapter is completed once all results are in.*
+Every result in this guide comes with conditions. This chapter collects them in one place, so that no result is stretched beyond what it supports. They fall into four groups: the simulation, the task, the statistics, and the comparisons.
+
+## 8.1 The simulation
+
+All results are from simulation; no real drone was flown. The simulator is a rigid-body model: the agent's thrust and body moments are applied directly to the drone's body, so the motors respond instantly and perfectly (only the delay test adds a lag). There is no model of the individual propellers, no ground effect near the floor, and no battery that runs down during a flight. Air resistance comes from MuJoCo's simple fluid model of a box-shaped body; wind is a uniform movement of the whole air mass, steady or as one 1-second gust, not the turbulent, changing wind of a real room or outdoors. Sensor noise is simple random noise added to perfect measurements; a real Crazyflie estimates its state with a filter, whose errors are correlated in time and can drift. Each of these differences could change how a controller behaves on a real drone, which is why Chapter 6 treats real-world readiness separately (question 10).
+
+## 8.2 The task
+
+The task is deliberately narrow: one drone, one target point one metre above the origin, starts at rest and level. The held-out block tests interpolation only in the horizontal plane (it spans all training heights). The outside starts are at most 0.75 m beyond the training area, so they test moderate extrapolation, not arbitrarily distant starts. A controller that does well here has learned to recover from a displacement, not yet to follow a path, take off, land, or fly with other drones.
+
+## 8.3 The statistics
+
+- **Seeds.** The main experiments (R1 and D) have 11 seeds each, enough for the averages and confidence intervals reported. C1 and H2 have 3 seeds; their results show a direction, and their sizes should be read as preliminary.
+- **Test starts.** Each agent is flown once from each of 50, 30 and 30 fixed starts. A share from one agent therefore moves in steps of 2-3 percentage points, and the reported standard errors (across seeds) do not include the uncertainty from the particular choice of starts. Using the same starts for every agent makes comparisons paired and precise, at the price of this small blind spot.
+- **Thresholds.** Success means a late error below 10 cm. This threshold is a choice; the full distributions of late errors are saved, and conclusions that would change with a different threshold are pointed out where they occur.
+- **Repeatability.** Training on a GPU is not exactly repeatable: two runs with the same seed drift apart slightly once learning starts (Section 4.6). Results are therefore statements about the distribution of agents a configuration produces, which is what the seeds measure, not about one exact agent.
+
+## 8.4 The comparisons
+
+- **Test-time changes.** The planner variants and the horizon test change the planner only when testing agents trained with the default settings. An agent trained with a longer horizon, or with more candidates from its policy network, might behave differently; these tests show what the trained agents' models can support, not what the best training settings are.
+- **Hyperparameters.** TD-MPC2 was used with its published settings (and the small settings from September), without tuning. A tuned configuration might change the sizes of the effects, especially for the small model.
+- **PPO.** The Batch 1 comparison with PPO used the lab's PPO with the two bugs described in Section 3.3. It was not repaired or re-run, so it is a historical baseline, not a fair tuned comparison. In particular, PPO's late degradation is likely caused by its learning rate never decreasing.
+- **Speed.** Times were measured on a 2/7 slice of an A100 shared with other users' jobs on the same card, and at home on an RTX 3060; other hardware will give other numbers. The parallel-drone speeds are projections from measured timings, not full training runs, and they do not measure how many environment steps a parallel version would need to learn.
+- **World-model error.** The model error is measured in the agent's own internal (latent) space. It is meaningful for comparing flights of the same agent (planner versus policy network, before a crash versus a completed flight), less so for comparing different agents.
 
 # 9. What to do next
 
@@ -342,7 +505,101 @@ bash code/src/tdmpc2_training/cluster/pull_results.sh
 
 # Appendix A. Glossary
 
-*Completed with the final version.*
+**Action.** What the agent sends to the drone at each step: collective thrust and three body moments (Section 2.2).
+
+**Agent.** The learning program, here a TD-MPC2 controller with its networks.
+
+**Array job.** A Slurm job that runs the same script many times with a different task number (here: one seed or one run per task).
+
+**Bootstrap confidence interval.** An interval for a mean or a difference, obtained by recomputing it many times on seeds resampled with replacement. A 95% interval that does not contain zero means the difference is very unlikely to be due to chance.
+
+**Checkpoint.** The saved state of a training run: the agent's weights, and on Narval the replay buffer, so that training can be resumed.
+
+**Crash.** A flight that ends before 10 s, because the drone went below 5 cm (it hit the **ground**) or strayed more than 2 m beyond its starting distance (**out of bounds**).
+
+**Domain randomisation.** Training in many variants of the physics (here: mass, motor strength, wind) so that the controller cannot rely on one exact set of values.
+
+**Elites.** In MPPI, the best-scoring candidate plans of a round, used to choose the next round's candidates.
+
+**Encoder.** The network that turns the 31 observation numbers into the latent state.
+
+**Ensemble.** Several networks of the same kind trained side by side (here five value networks); their disagreement indicates uncertainty.
+
+**Environment step.** One decision of the agent and 0.02 s of simulated flight.
+
+**Extrapolation (out-of-distribution).** Testing in situations beyond the range seen in training, such as the outside starts.
+
+**Flight.** One test of 500 steps (10 s) from one start.
+
+**Generalisation.** Working well in situations not seen in training.
+
+**GPU, MIG slice.** A graphics card used for computation. Narval's A100 cards are divided into isolated slices (multi-instance GPU); each job here used a slice of 2/7 of a card with 10 GB of memory.
+
+**Held-out block.** The square x, y in [0.25, 0.75] m that is inside the range of the training area but never used for training starts; it tests interpolation.
+
+**Horizon.** How many steps ahead the planner imagines (3 steps, 0.06 s, in TD-MPC2's default).
+
+**Intraclass correlation (ICC).** The share of the total variance that comes from differences between groups (here between seeds) rather than within them (between repeated flights of the same agent).
+
+**Interpolation.** Testing inside the range of the training distribution, in a part that was not visited (the held-out block).
+
+**JAX.** A Python library for numerical computing that compiles programs for GPUs. TD-MPC2 and the simulator both run in JAX here.
+
+**Late error.** The average distance to the target over the last 2 s of a flight.
+
+**Latent state.** The agent's internal description of the situation, produced by the encoder (128 or 512 numbers).
+
+**Model-based / model-free.** A model-based method learns how the world works (a world model) and uses it; a model-free method learns behaviour directly from experience.
+
+**Model exploitation.** When a planner optimises against a learned model, it can pick actions for which the model is wrong in an optimistic way, because those look best to the model. The actions then perform worse in reality than predicted.
+
+**MPC (model predictive control).** Re-planning at every step a few steps into the future and executing only the first action.
+
+**MPPI (model predictive path integral).** The sampling-based planning algorithm of TD-MPC2: sample candidate plans, keep the elites, refit, repeat.
+
+**MuJoCo, MJX.** The physics engine used by the simulator, and its JAX version that runs on GPUs.
+
+**Narval.** A computing cluster of the Digital Research Alliance of Canada, run by Calcul Québec.
+
+**Observation.** What the agent measures at each step: 31 numbers (Section 2.2).
+
+**Paired comparison.** Comparing two methods on the same agents, starts and sensor noise, so that only the method differs; much more precise than comparing unrelated runs.
+
+**Permutation test.** A test of whether a correlation could arise by chance, by shuffling one of the two variables many times and counting how often the shuffled correlation is as strong as the real one.
+
+**Policy, policy network.** The rule that maps an observation to an action; TD-MPC2's policy network proposes actions from the latent state.
+
+**Policy prior samples.** The candidate plans in MPPI that are proposed by the policy network rather than drawn at random (24 of 512 for the published settings, 16 of 128 for the small ones).
+
+**PPO.** Proximal Policy Optimization, the model-free method used by the previous students (Section 2.3).
+
+**Replay buffer.** The memory of all past transitions (observation, action, reward, next observation) from which TD-MPC2 learns.
+
+**Reward.** The number the environment returns after each action, saying how good it was (Section 2.2).
+
+**Seed.** The number that fixes all the randomness of a training run; different seeds give independently trained agents.
+
+**Slurm.** The job scheduler of Narval: it queues jobs and starts them when resources are free.
+
+**Snapshot.** The agent's weights saved every 100k steps during a Batch 2 run (without the replay buffer), so that the run's history can be tested afterwards.
+
+**Spearman correlation.** A correlation between the ranks of two variables; it detects any monotonic relationship.
+
+**Standard error (SE).** The uncertainty of a mean: the standard deviation divided by the square root of the number of seeds.
+
+**Success.** A flight that lasts the full 10 s with a late error below 10 cm.
+
+**TD learning.** Temporal-difference learning: improving the value function by comparing its estimate with the reward actually received plus its own estimate at the next step. It is the "TD" in TD-MPC2.
+
+**Updates-to-data ratio (UTD).** The number of learning updates per environment step (1 for TD-MPC2's default).
+
+**Validation starts.** 40 starts used only to choose checkpoints, kept separate from the test starts.
+
+**Value function.** The estimate of the long-term reward from a situation (and an action); TD-MPC2 uses it to judge everything beyond its 3-step horizon.
+
+**Wall-clock time.** Real elapsed time, as opposed to the number of environment steps.
+
+**World model.** The networks that predict what happens next (dynamics) and the reward, used for planning.
 
 # Appendix B. Jobs and code versions
 

@@ -344,6 +344,21 @@ def disturbance_lines(batches):
             for kind, (_, strengths, _) in DISTURBANCE_AXES.items():
                 cells += [np.nanmean([s.disturb_stat(rule, kind, x, "success") for s in seeds]) for x in strengths]
             lines.append(f"| {name} | {RULES[rule]} | " + " | ".join(f"{c:.0%}" for c in cells) + " |")
+    # Planning minus policy network only, paired by seed, for each condition.
+    paired_rows = []
+    conditions = [("none", 0.0)] + [(kind, x) for kind, (_, strengths, _) in DISTURBANCE_AXES.items() for x in strengths]
+    for name, seeds in batches:
+        if not all("planner" in s.disturb and "policy_only" in s.disturb for s in seeds):
+            continue
+        cells = []
+        for kind, x in conditions:
+            m, lo, hi = bootstrap_ci([s.disturb_stat("planner", kind, x, "success") for s in seeds],
+                                     [s.disturb_stat("policy_only", kind, x, "success") for s in seeds], paired=True)
+            cells.append(f"{m * 100:+.0f} [{lo * 100:+.0f}, {hi * 100:+.0f}]")
+        paired_rows.append(f"| {name} ({len(seeds)} seeds) | " + " | ".join(cells) + " |")
+    if paired_rows:
+        lines += ["", "Planning minus policy network only, success points, paired by seed (95% bootstrap interval):", "",
+                  "| batch | " + " | ".join(header) + " |", "|---|" + "---:|" * len(header)] + paired_rows
     # How crashed flights ended (column added on Nov 2; older results lack it).
     cause_rows = []
     for name, seeds in batches:

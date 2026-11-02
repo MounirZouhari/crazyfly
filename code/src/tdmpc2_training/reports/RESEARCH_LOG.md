@@ -185,3 +185,11 @@ So anchoring the planner to the policy network's proposals removes most of its e
   - 64x2 planner: 5.1-8.7 cm.
 - The policy network alone holds the wrong height. Planning corrects it almost entirely, mostly the thrust (hovering needs 76% of maximum thrust, so small biases matter).
 - Hypothesis: the policy network, trained to maximise the value with an entropy bonus, has a biased mean thrust, and short-horizon planning against the model's predicted rewards removes the bias.
+
+**02:19-02:27: horizon test (added after the main experiments, eval only).**
+- **Question:** TD-MPC2 plans 3 steps (0.06 s) ahead. Would a longer horizon help, or do world-model errors compound beyond the horizon it was trained on?
+- **Setup:** `eval_horizon.py` flies the same agent with horizons 1, 3, 5 and 10 (changed only at test time), from the 50 training-area and 30 outside starts, nominal, in 3 m/s steady wind and with 15% extra mass; same sensor noise for every horizon.
+- **Validated:** the planner sizes its plan and warm start from the horizon setting (`tdmpc2.py` lines 196-201, `hover_eval.py` line 203), including horizon 1; the pilot ran without errors.
+- **Pilot (Batch 1 small agent, seed 4, single start; 380 s at home).** Success / crash from training-area starts, nominal: horizon 1: 0% / 54%; 3: 64% / 10%; 5: 22% / 18%; 10: 2% / 42%. Same ranking with extra mass; everything fails in 3 m/s wind.
+- **Reading:** the trained horizon is best for this agent; both shorter and longer horizons are worse. One agent only.
+- **Launched:** `cluster/horizon_job.sh` on every Batch 2 agent (small 0-2 now; small 3-10, R1, C1 and randomized chained on their training). Commit b86b66b. `analyze_horizon.py` summarises across seeds.
