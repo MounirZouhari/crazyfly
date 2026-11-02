@@ -14,6 +14,10 @@
 #
 # Batch 2 (see ../EXPERIMENTS.md), with a longer time limit:
 #   sbatch --array=0-10 --time=10:00:00 --export=ALL,CONFIG=config_batch2_random_start,BATCH=batch2/random_start_1M,STEPS=1000000,DEPLOYMENT_TESTS=1 .../seed_job.sh
+# or in four 3-hour pieces, each task waiting for the same task of the previous piece:
+#   P1=$(sbatch --parsable --array=0-10 --time=3:00:00 --export=ALL,...,STEPS=250000,SKIP_TESTS=1 .../seed_job.sh)
+#   P2=$(sbatch --parsable --dependency=aftercorr:$P1 ... STEPS=500000,SKIP_TESTS=1 ...)  and so on;
+#   the last piece has STEPS=1000000 and no SKIP_TESTS.
 #
 # Results: $SCRATCH/tdmpc2/<BATCH>/seed_XX/  (same layout as outputs/ at home,
 # so analyze_seeds.py works on it after copying it back). gpu_usage.csv in
@@ -70,6 +74,14 @@ trap 'kill $GPU_LOGGER 2>/dev/null || true' EXIT
 if [ ! -d "$RUN_DIR/checkpoint/$STEPS" ]; then
   $PY $SCRIPTS/train_hover.py --config-name="$CONFIG" seed="$SEED" \
     max_steps="$STEPS" hydra.run.dir="$RUN_DIR" $EXTRA
+fi
+
+# A long run can be split into pieces of at most 3 hours (they start much
+# sooner): each piece resumes from the previous checkpoint and trains to its
+# own STEPS; SKIP_TESTS=1 on all but the last piece.
+if [ -n "${SKIP_TESTS:-}" ]; then
+  echo "seed $SEED trained to $STEPS steps; testing is left to the last piece, $(date)"
+  exit 0
 fi
 
 # Each test runs only if its results are not there yet.

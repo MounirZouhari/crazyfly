@@ -159,6 +159,67 @@ All on Nov 1, 2026. Evidence is in `outputs/batch2_validation/` on the home PC.
     flights with 512x6 planning) takes about 8 min.
 - Short test job on Narval before the full launch: see the launch log below.
 
+## Launch log
+
+**Nov 1, 2026.**
+- **Backup:** Narval scratch (all Batch 1 runs, 916 files) copied to
+  `/project/def-cbelling-ab/mounirz/tdmpc2_scratch_backup_2026-11-01/`, with
+  contents verified identical, before the 60-day scratch purge.
+- **Code:** the Narval copy was synced with its git history; it reports
+  commit `8edab5b` with no uncommitted changes.
+- **Test job 7659264** (R1 settings, 4,000 steps, seed 0,
+  `batch2_validation/narval_test/`): completed in 15 min, exit 0.
+  - It recorded commit `8edab5b`, clean.
+  - Checkpoint, snapshots, the 21-flight learning curve and the three final
+    tests (128 flights each) were all produced.
+  - Training 4,000 steps took 6.5 min including two learning-curve tests; the
+    three final tests took 8.5 min together.
+- **GPU utilisation on Narval:** `nvidia-smi` cannot report utilisation for
+  an A100 slice (MIG); it prints `[N/A]`, and `memory.used` is the whole
+  A100's. The time breakdown of experiment P is the measure used instead.
+- **Submitted about 20:45 EST:**
+  - R1 = job 7659438 (tasks 0-10) and C1 = job 7659439 (tasks 0-2): 10 h
+    limit, started only after the test job succeeded (`afterok`);
+  - R4 = job 7659440 (tasks 0-24, one per Batch 1 run);
+  - P = job 7659441.
+
+  Logs: `$SCRATCH/tdmpc2/batch2/logs/`. Job IDs:
+  `$SCRATCH/tdmpc2/batch2/job_ids.txt`.
+
+## Next: disturbance tests (D)
+
+`eval_disturbances.py` flies finished agents (R1, C1 and the Batch 1
+1M-step agents) from the 50 `train_area` starts under disturbances they never
+trained with. Each is flown at several strengths, with planning and with the
+policy network only. Every condition uses the same starts and sensor noise
+(noise seed = training seed + 3000), so only the disturbance changes:
+
+| Disturbance | Strengths | Real-life equivalent |
+| --- | --- | --- |
+| steady wind along +x (simulator air model, air density 1.225 kg/m3) | 1, 2, 3, 4 m/s | a fan or an air-conditioning draft |
+| gust: the same wind for 1 s, 3 s into the flight | 2, 4, 6 m/s | someone walking past, a door |
+| extra mass and inertia | x1.05, 1.10, 1.15 | an expansion deck, a marker, a camera |
+| weaker motors (thrust and moments) | x0.95, 0.90 | battery voltage drop, worn propellers |
+| commands applied late | 1, 2 steps (20, 40 ms) | radio lag |
+
+The simulated drone needs 76% of its maximum thrust to hover, so the mass and
+motor changes are kept small. `check_disturbances.py` checks the physics with
+a scripted pilot:
+
+| Check | Result |
+| --- | --- |
+| no disturbance | flights identical to the normal tests, with the scripted pilot and with a trained agent with its planner |
+| plain hover command | holds the drone exactly |
+| wind | pushes the drone 0.12 m in 1 s at 1.5 m/s and 0.42 m at 3 m/s (drag grows about with speed squared) |
+| +15% mass | sinks 0.62 m in 1 s (physics predicts 0.64 m) |
+| -10% motors | sinks 0.48 m in 1 s (0.49 m predicted) |
+| delays | exact |
+
+The air model treats the drone as a box of similar size, not a real
+quadrotor with propellers, so the wind force is the right order of magnitude
+but not exact. That is fine for comparing agents, which all face the same
+wind; a fan and a wind meter on the real drone could calibrate it later.
+
 ## Reproduce
 
 From the repository root (home):

@@ -194,7 +194,15 @@ def train(cfg: dict):
     ep_count = np.zeros(env_config.num_envs, dtype=int)
     prev_logged_step = global_step
     plan = None
-    observation, _ = env.reset(seed=cfg.seed)
+    env_seed = cfg.seed
+    if global_step > 0:
+      # A resumed run (e.g. the next piece of a run split into cluster jobs)
+      # must not replay the starts, sensor noise, planner noise and replay
+      # samples it already used, so these depend on the step it resumes at.
+      env_seed = cfg.seed * 10_000_000 + global_step
+      rng = jax.random.fold_in(rng, global_step)
+      replay_buffer.np_random = np.random.default_rng([cfg.seed, global_step])
+    observation, _ = env.reset(seed=env_seed)
 
     seed_steps = int(cfg.get('seed_steps', 2500 * env_config.num_envs * env_config.utd_ratio))
     pbar = tqdm.tqdm(initial=global_step, total=cfg.max_steps)
