@@ -10,7 +10,10 @@ planner), over the full flights (no crash) from the training-area and
 held-out starts: the median late error, its horizontal and vertical parts,
 and the median height offset (late height minus the target height of 1 m;
 negative means the drone hovers too low). Each seed's median first, then
-mean +/- standard error across seeds. Writes summary.md and precision.png.
+mean +/- standard error across seeds. Also the share of flights ending
+within any threshold from 0 to 50 cm (crashes count as failures), so that
+no conclusion depends on the 10 cm used for success.
+Writes summary.md, precision.png and thresholds.png.
 """
 import argparse
 import csv
@@ -50,12 +53,46 @@ def seed_medians(path):
             float(np.median(column("late_height_m") - TARGET_HEIGHT_M)), len(rows)]
 
 
+def within(path, thresholds_m):
+    """Share of all flights (crashes count as failures) that end with a late error below each threshold."""
+    rows = [r for r in csv.DictReader(open(path)) if r["test_set"] in GROUPS]
+    late = np.array([float(r["late_error_m"]) if r["crashed"] == "False" else np.inf for r in rows])
+    return np.array([np.mean(late < t) for t in thresholds_m])
+
+
+def plot_thresholds(args, thresholds_m):
+    """Success for every threshold from 0 to 50 cm, so that no conclusion hangs on the 10 cm choice."""
+    fig, axes = plt.subplots(1, len(args.batches), figsize=(4.4 * len(args.batches), 3.8), squeeze=False, sharey=True)
+    for ax, batch in zip(axes[0], args.batches):
+        for (rule, folder), color in zip(folders(batch).items(), ["#1f6f8b", "#d1495b", "#e09f3e"]):
+            curves = np.array([within(run / folder / "summary.csv", thresholds_m) for run in sorted(batch.glob("seed_*"))
+                               if (run / folder / "summary.csv").exists()])
+            if len(curves) == 0:
+                continue
+            mean = curves.mean(axis=0)
+            se = curves.std(axis=0, ddof=1) / np.sqrt(len(curves)) if len(curves) > 1 else np.zeros_like(mean)
+            ax.plot(100 * thresholds_m, 100 * mean, color=color, label=f"{RULES[rule]} ({len(curves)} seeds)")
+            ax.fill_between(100 * thresholds_m, 100 * (mean - se), 100 * (mean + se), color=color, alpha=0.2)
+        ax.axvline(10, color="grey", ls=":", lw=1)
+        ax.set_title(batch.name, fontsize=10)
+        ax.set_xlabel("threshold on the late error (cm)")
+        ax.grid(alpha=0.3)
+        ax.spines[["top", "right"]].set_visible(False)
+        ax.legend(frameon=False, fontsize=7)
+    axes[0][0].set_ylabel("flights below the threshold (%)\ncrashes count as failures")
+    fig.suptitle("Success for every threshold (training-area and held-out starts; dotted: the 10 cm used in the tables)",
+                 fontsize=10)
+    fig.tight_layout()
+    fig.savefig(args.out / "thresholds.png", dpi=150)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("batches", type=Path, nargs="+")
     parser.add_argument("--out", type=Path, default=Path("outputs/batch2/precision_summary"))
     args = parser.parse_args()
     os.makedirs(args.out, exist_ok=True)
+    plot_thresholds(args, np.linspace(0.0, 0.5, 101))
 
     lines = ["# Where the precision comes from (full flights from the training-area and held-out starts)", "",
              "Medians per seed, then mean ± SE across seeds, in cm. Height offset = late height minus 1 m "
@@ -98,7 +135,7 @@ def main():
     fig.savefig(args.out / "precision.png", dpi=150)
     (args.out / "summary.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
-    print(f"Saved {args.out / 'summary.md'} and {args.out / 'precision.png'}")
+    print(f"Saved {args.out / 'summary.md'}, {args.out / 'precision.png'} and {args.out / 'thresholds.png'}")
 
 
 if __name__ == "__main__":

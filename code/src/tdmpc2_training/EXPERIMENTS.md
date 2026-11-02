@@ -107,8 +107,8 @@ What each answers from Prof. Bellinger's Oct 12 feedback:
 | Random starts from an area | R1, C1 |
 | Does the model help out of distribution? When and why? | R1 on held-out and outside starts, with vs without planning; disturbance tests next |
 | Inference time of the big model | `bench_latency.py` (home) and P (Narval) |
-| Can a smaller model be accurate enough? | R1 agents flown with the policy network only and with a 64x2 planner |
-| PPO learning rate | not in this batch (PPO bugs found on Nov 1 are fixed first; see CONTEXT.md) |
+| Can a smaller model be accurate enough? | D (small model, random starts, 11 seeds); R1 agents flown with the policy network only and with a 64x2 planner |
+| PPO learning rate | not tested: PPO is kept as a historical baseline (the project is about TD-MPC2). The audit found that its learning rate never decayed (schedule in environment steps, optimiser counting updates), the likely cause of the late degradation; see CONTEXT.md |
 
 ## Measurements already made (home PC, Nov 1)
 

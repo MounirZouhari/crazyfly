@@ -153,6 +153,10 @@ The measures were fixed before any Batch 2 result was seen: **success** (full fl
 | Dist. | wind, gusts, mass, motors, delay | all agents | robustness, with and without planning |
 | Snap. | every 100k-step snapshot | all Batch 2 runs | swings within a run, best vs final checkpoint |
 | Hor. | planning horizon 1, 3, 5, 10 at test time | all Batch 2 agents | would looking further ahead help? |
+| Smooth. | smoother ways of acting, slower motors | R1 and D agents | does the planner need its jumpy commands? |
+| Sharp | small model with an extra reward near the target | 3 × 1M | is the drift of precision caused by the reward? |
+
+The last three rows were added during the night, after the first results had raised the questions they answer (Sections 5.13, 5.14 and 5.16).
 
 ## 4.6 How the code was checked before anything ran
 
@@ -175,7 +179,7 @@ The experiments ran on the Digital Research Alliance cluster **Narval**, each on
 
 Every section follows the same pattern: the question, how it was tested, what came out, and what it means. Tables give **success / crash** shares as mean ± standard error across seeds; each seed is first averaged over its own flights, so every seed counts equally. Differences between two decision rules are **paired**: the same agents, the same starts and the same sensor noise, so that only the decision rule differs. Where a difference matters, its 95% bootstrap confidence interval is given in square brackets.
 
-The sections go from the past to the present. Sections 5.2 to 5.4 look back at Batch 1 with new tests. Sections 5.5 to 5.8 present the main Batch 2 results: learning to hover from anywhere. Sections 5.9 to 5.13 explain when and why the world model helps or hurts. Section 5.14 covers speed.
+The sections go from the past to the present. Sections 5.2 to 5.4 look back at Batch 1 with new tests. Sections 5.5 to 5.8 present the main Batch 2 results: learning to hover from anywhere. Sections 5.9 to 5.14 explain when and why the world model helps or hurts, and what limits the precision. Sections 5.15 and 5.16 look at how the drone flies, beyond success and crashes, which matters for a real drone. Section 5.17 covers speed.
 
 ## 5.2 Was the Batch 1 spread between seeds real? (A1)
 
@@ -224,17 +228,33 @@ The sections go from the past to the present. Sections 5.2 to 5.4 look back at B
 
 ## 5.5 Learning to hover from anywhere: the published model (R1)
 
-*Results pending (final tests at about 04:45).*
+**The question.** Can TD-MPC2 learn to reach the target from any start in a region, rather than memorising one route? And does what it learns carry over to starts it never trained from: the held-out block inside the region (interpolation) and the starts outside it (extrapolation)? This is the professor's central suggestion and the main experiment of Batch 2.
+
+**How it was tested.** Eleven seeds of TD-MPC2 with the published settings were trained for 1M steps each, every training flight starting at a new random position in the training area (Section 4.1). During training, 21 test flights every 25k steps recorded the learning curves. At the end, every agent flew the 128 fixed test flights (Section 4.3) three times: with planning as trained, with the policy network only, and with a small 64×2 planner, all with the same sensor noise.
+
+*Results pending.*
 
 ## 5.6 The single-start control (C1)
+
+**The question.** R1 differs from the Batch 1 agents in two ways: random starts, and the target offset given in metres. Which of the two makes the difference? C1 answers this: it is identical to R1 (same settings, same metric offset, same 1M steps) except that every training flight starts at the Batch 1 start (0, 0, 0.2).
+
+**How it was tested.** Three seeds, trained and tested exactly like R1.
 
 *Results pending.*
 
 ## 5.7 The small model (D)
 
-*Results pending (11 seeds at about 03:15).*
+**The question.** The published model needs a GPU to plan in real time (6.1 ms per decision on a GPU slice, 516 ms on a CPU). The small model plans in 1.4 ms on a GPU slice and 11.4 ms on a CPU, which would fit a laptop next to the drone. Does it learn random starts as well as the published model?
+
+**How it was tested.** Eleven seeds of the small settings (Section 2.4), trained and tested exactly like R1. Because the small model trains faster, each run was split into two jobs of 3 hours, the second resuming from the first's checkpoint. Three seeds were run first as a pilot; the other eight were launched after the pilot had shown at 200k steps that learning worked.
+
+*Results pending.*
 
 ## 5.8 With and without planning: where the precision comes from
+
+**The question.** Sections 5.5 to 5.7 compare planning with the policy network alone in terms of success and crashes. This section looks at the flights themselves: when the drone does not crash, how close to the target does it end, in which direction is it off, and is the conclusion tied to the 10 cm threshold?
+
+**How it was tested.** The script `analyze_precision.py` takes the full flights (no crash) from the training-area and held-out starts and splits each one's late error into its horizontal part and its vertical part, and computes the height offset (above or below the target). It also plots, for every threshold from 0 to 50 cm, the share of flights that end within it, counting crashes as failures. This last figure shows the whole picture at once, without choosing a threshold.
 
 *Results pending.*
 
@@ -270,21 +290,76 @@ All three seeds improved in the same way with both restrictions, which is why th
 
 ## 5.10 Disturbances
 
+**The question.** A real drone meets things that never happened in training: a draft from a fan, a gust from a door, a payload, a weaker battery, radio lag. How do the controllers cope, and does planning with the world model make them more robust than the policy network alone? This is the professor's question about external disturbances.
+
+**How it was tested.** The script `eval_disturbances.py` flies every agent from the 50 training-area starts under each disturbance at several strengths, with planning and with the policy network only, always with the same sensor noise, so that the only difference between conditions is the disturbance:
+
+| Disturbance | Strengths | Real-life equivalent |
+|---|---|---|
+| steady wind | 1, 2, 3, 4 m/s | a fan or an air-conditioning draft is about 1-3 m/s |
+| gust | 2, 4, 6 m/s for 1 s, from 3 s into the flight | a door opening, a person walking past |
+| extra mass and inertia | +5, +10, +15% | an expansion deck, a marker, a small camera |
+| weaker motors | -5, -10% thrust and moments | battery voltage dropping, worn propellers |
+| command delay | 1 or 2 control steps (20 or 40 ms) | radio and processing lag |
+
+The wind acts through the simulator's air model, so it pushes on the drone the way moving air would. Hovering already needs 76% of the maximum thrust, which is why the extra mass and the motor weakening stay small: with 30% more mass, the drone would need 99% of its maximum thrust just to stay in the air. For each crashed flight the test also records how it ended: hitting the ground, or being carried out of bounds.
+
 *Results pending.*
 
 ## 5.11 Training on varied physics (H2)
+
+**The question.** Section 5.9 suggests that planning hurts when the world model is used outside the data it was trained on. The opposite hypothesis, called **H2** here, is that planning should help when the world model has been trained on the relevant variation. Disturbances offer a direct test: if the training flights already contain varied mass, motor strength and wind, the world model learns how these change the drone's motion, and planning with it might then cope better with them than the policy network alone.
+
+**How it was tested.** Three seeds of the small model were trained like D, except that every training flight also drew, at random, a mass and inertia between ×1.0 and ×1.15, a motor strength between ×0.9 and ×1.0, and a steady wind of 0 to 3 m/s from a random direction (`crazyflie_hover_dr.py`). The agent is never told these values; it can only infer them from how the drone moves. This is known as **domain randomisation** (Peng et al., 2018). The agents were then tested with the same disturbance tests as D. Disturbances within these ranges test interpolation; 4 m/s wind, 6 m/s gusts and command delays lie outside them. With 3 seeds this is a pilot.
 
 *Results pending.*
 
 ## 5.12 Snapshots: change during training, and the best versus the final checkpoint
 
+**The question.** The learning curves of Batch 1 and of Batch 2 swing from one test point to the next. Two questions follow. Are these swings real changes of the agent, or noise of the test flights? And would it be better to keep the best checkpoint of a run than the last one?
+
+**How it was tested.** Every Batch 2 run kept its agent every 100k steps (10 snapshots). The script `eval_snapshots.py` flies every snapshot from the 40 validation starts and the 110 test starts, with planning and with the policy network only, always with the same sensor noise, so that differences between snapshots can only come from the agents. The best snapshot of each run is chosen on the validation starts alone; its test results are then compared with those of the final snapshot. Choosing on separate validation starts matters: choosing on the test starts would make the "best" snapshot look better than it really is.
+
 *Results pending.*
 
-## 5.13 The planning horizon
+## 5.13 A sharper reward near the target (pilot)
+
+**The question.** Section 5.12 shows that the precision of an agent drifts between checkpoints, while it never crashes. A look at the reward suggests why. The lab's reward per step is 0.001 for staying in the air, plus 0.01 × (1 - tanh d) for being at a distance d from the target, plus the reduction of the distance since the previous step, and -1 for a crash. Hovering at 5 cm from the target earns 0.0105 per step; hovering at 15 cm earns 0.0095. The difference, 0.001 per step, is about a tenth of the value of hovering at all, and in TD-MPC2's value encoding (101 bins over a symmetric logarithmic range from -10 to 10, so bins of width 0.2) it is a quarter of a single bin. Within the 3-step planning horizon, the two rewards differ by only 0.003. The agent therefore has very little reason to prefer 5 cm over 15 cm, which could explain why its precision wanders. This is a hypothesis; the experiment below tests it.
+
+**How it was tested.** Three seeds of the small model were trained exactly like D, with one change: an extra reward term concentrated near the target, 0.01 × exp(-d² / (2 × 0.05²)), worth 0.01 at the target, 0.006 at 5 cm and almost nothing beyond 15 cm (`crazyflie_hover_sharp.py`). Hovering at 2 cm instead of 15 cm now earns about 0.010 more per step instead of 0.001. Physics, observations, starts and tests are unchanged, and the test flights measure distances, so the results compare directly with D. The comparison of interest is the drift between snapshots and the final precision. This is a change of the task's reward, not of TD-MPC2, and with 3 seeds it is a pilot.
 
 *Results pending.*
 
-## 5.14 Speed: decision time, training time and parallel drones
+## 5.14 The planning horizon
+
+**The question.** TD-MPC2 plans only 3 steps (0.06 s) ahead and leaves everything after that to its value network. Would looking further ahead help? Or would the world model's errors pile up over a longer horizon, since it was trained to predict only 3 steps?
+
+**How it was tested.** The script `eval_horizon.py` flies the same agents with planning horizons of 1, 3 (as trained), 5 and 10 steps, from the 50 training-area and 30 outside starts, without disturbance, in a 3 m/s steady wind and with 15% extra mass, always with the same sensor noise. Only the horizon used at test time changes; the agents are not retrained.
+
+*Results pending.*
+
+## 5.15 How the drone flies: settling, smoothness and the worst flights
+
+**The question.** Success and crashes say where a flight ends, not how it got there. For a real drone, three more things matter: how long it takes to settle near the target, how smooth its commands are (motors cannot change their speed instantly, and jumpy commands heat them and shake the frame), and how bad the worst flights are. The mission for this project asked for all three; none of them needed new flights, because every test already saved every step of every flight (`trajectories.csv`).
+
+**How it was measured.** The script `analyze_flight_quality.py` reads the step-by-step records of the final tests from the training-area and held-out starts and computes, for each agent:
+
+- the **settling time**: the moment after which the drone stays within 10 cm of the target until the end of the flight;
+- the **command jitter**: how much each command changes from one step to the next during the last 5 seconds of a full flight, when the drone should simply be holding its position, in percent of the command's full range;
+- the **saturation**: the share of steps at which a command is at its limit (no thrust, full thrust, or a body moment at its maximum);
+- the **tail**: the 90th percentile and the worst late error of the full flights.
+
+*Results pending.*
+
+## 5.16 Smoother commands and slower motors
+
+**The question.** Section 5.15 shows that the planner's commands jump from step to step. Why, and does it matter? The reason is in how TD-MPC2 acts. At each step, its planner samples many candidate plans, scores them with the world model, and executes the first action of the single best one. Because each step's best candidate is a new random sample, and because many samples are clipped at the command limits, the executed action jumps around even when the drone is hovering calmly. The planner also computes a smoother quantity, the weighted average of its best candidates (its **averaged plan**), but only uses it to start the next step's search. Two questions follow. Does the planner need its jumpy actions to be precise, or would a smoother way of acting do as well? And does the precision survive if the motors cannot follow the commands instantly, as real motors cannot?
+
+**How it was tested.** The script `eval_smoothing.py` flies the same agents, from the same 80 training-area and held-out starts with the same sensor noise, in four ways: the planner as trained; the first action of the planner's averaged plan; the planner's commands passed through a low-pass filter with a time constant of 40 ms (each command moves only part of the way towards the new one); and the policy network alone. Each is flown with instant motors, as in training, and with motors that follow the command with a first-order lag of 30 or 60 ms. These lags were chosen to test sensitivity; the real Crazyflie's motor response has not been measured in this project, so they are assumptions, not identified values. Nothing is retrained; only the way the trained agent acts, or the simulated motors, change.
+
+*Results pending.*
+
+## 5.17 Speed: decision time, training time and parallel drones
 
 **Decision time.** A real controller must decide within the 20 ms control period. The script `bench_latency.py` timed 1,000 decisions (300 on the CPU) for each network size and planning budget, on a Narval GPU slice and on 2 CPU cores of the same machine (median times):
 
@@ -314,7 +389,55 @@ The 1-drone projections match the measured training speeds, so the projection ca
 
 # 6. Answers to Professor Bellinger's questions
 
-*This chapter is completed once all results are in.*
+This chapter answers the ten questions that were drawn from Professor Bellinger's feedback. Each answer starts with the short version, then gives the evidence (with the section of Chapter 5 where it is shown) and says how certain it is: **established** means several seeds, the right controls and a repeated measurement; **preliminary** means few seeds or a single setting, so the direction is clear but the size is uncertain.
+
+## Q1. Why did short TD-MPC2 runs vary so much between seeds?
+
+*Completed with the final results.*
+
+## Q2. Does longer training resolve the variability?
+
+*Completed with the final results.*
+
+## Q3. How do TD-MPC2 and PPO compare in simulator steps and wall-clock time?
+
+**Short answer.** TD-MPC2 needs about 100 times fewer simulator steps than PPO, but PPO is faster in real time, because it simulates 2,048 drones at once while TD-MPC2 simulates one.
+
+**Evidence (Batch 1, single start, established).** TD-MPC2 first reached 10 cm after 105k to 175k steps; PPO after 7.9M to 19.7M steps. In real time, PPO got there in about 2.6 minutes and TD-MPC2 in about 47 minutes. **Caveat:** the PPO runs had the two bugs described in Section 3.3 (a learning rate that never decreased, and a reset that leaked the previous flight's position and action). They are a historical baseline, not a tuned comparison, so the factor of 100 is indicative rather than exact.
+
+**What to say if asked more.** Which matters depends on the setting. On a real drone, every step is real flight time, so sample efficiency matters most and TD-MPC2's advantage is decisive. In simulation, where steps are almost free, PPO's parallelism wins.
+
+## Q4. How much of the GPU does TD-MPC2 use, and why is it slower in wall-clock time?
+
+**Short answer.** Very little. With one drone, each training step consists of many small operations performed one after the other, and the time goes into starting them rather than into computing.
+
+**Evidence (established, Section 5.17).** On a Narval GPU slice, one training step of the published model takes 6.8 ms to simulate the drone, 10.2 ms to plan its action and 2.6 ms for the learning update: 49 steps per second. At home the GPU was busy only 25-28% of the time; on Narval's GPU slices the usage counter is not available, so the measured times are the evidence instead. The planner is a good example: 13 times more arithmetic costs only about 3 times more time, which means the arithmetic is not the bottleneck.
+
+## Q5. Can TD-MPC2 benefit from parallel environments?
+
+**Short answer.** Only modestly in its standard form: 1.6 times faster for the published model and 2.9 times for the small one with 128 drones, according to a projection from measured timings.
+
+**Evidence (established as a projection, Section 5.17).** Simulating 128 drones costs the same as one, but TD-MPC2 must still plan for every drone at every step, and it makes one learning update for every step collected. These two costs grow with the number of drones and cap the speed (74 steps per second for the published model, 271 for the small one). The projection reproduces the measured one-drone speeds, so it is reliable. Faster training would require fewer learning updates per collected step; that is a different algorithm, and its effect on sample efficiency would have to be measured before it could be called an optimisation.
+
+## Q6. Can TD-MPC2 generalise from continuously randomised starting positions?
+
+*Completed with the final results.*
+
+## Q7. When and why does the learned world model improve generalisation?
+
+*Completed with the final results.*
+
+## Q8. Does planning improve robustness compared with the policy network alone?
+
+*Completed with the final results.*
+
+## Q9. How does model size affect inference speed and deployability?
+
+*Completed with the final results.*
+
+## Q10. What prevents safe transfer to a real Crazyflie?
+
+*Completed with the final results.*
 
 # 7. The code, file by file
 
@@ -377,12 +500,17 @@ A **test** of a saved agent (any of the `eval_*.py` scripts) rebuilds the agent 
 - **`eval_snapshots.py`**: flies every kept snapshot from the validation starts and all test groups.
 - **`eval_planner_variants.py`**: flies the same agent with the policy only, the trained planner, a narrower planner, and a planner with half its candidates from the policy network.
 - **`eval_horizon.py`**: flies the same agent with planning horizons of 1, 3, 5 and 10 steps.
+- **`eval_smoothing.py`**: flies the same agent with the planner as trained, with the first action of the planner's averaged plan, with the planner's commands through a low-pass filter, and with the policy network alone, each with instant motors and with slower motors (`SmoothedFlightTester`).
 - **`model_error.py`**: records flights and measures how wrong the agent's own world model is along them.
 
 ## 7.6 Analysis
 
 - **`analyze_batch2.py`**: the main Batch 2 analysis: learning curves per test group, final results per group and decision rule, comparisons between experiments with bootstrap confidence intervals, disturbance results and crash causes.
-- **`analyze_snapshots.py`**, **`analyze_model_error.py`**, **`analyze_planner_variants.py`**, **`analyze_horizon.py`**: summaries of the corresponding tests across seeds.
+- **`analyze_snapshots.py`**, **`analyze_model_error.py`**, **`analyze_planner_variants.py`**, **`analyze_horizon.py`**, **`analyze_smoothing.py`**: summaries of the corresponding tests across seeds.
+- **`analyze_precision.py`**: splits the late error of full flights into its horizontal and vertical parts and the height offset, per decision rule, and plots the share of flights ending within any distance from 0 to 50 cm, so that no conclusion depends on the 10 cm threshold.
+- **`analyze_flight_quality.py`**: from the step-by-step trajectories, the time to stabilise, the jitter of the commands, how often a command is at its limit, and the worst flights.
+- **`analyze_start_outcomes.py`**: the map of the test starts coloured by how many seeds succeeded from each.
+- **`analyze_all.sh`**: runs every analysis above on the results copied home, skipping whatever is not finished yet.
 - **`variance_decomposition.py`** (A1) and **`fluctuation_analysis.py`** (A2): the two analyses of Batch 1 variability.
 - **`analyze_seeds.py`** and **`compare_methods.py`**: the Batch 1 plots and the TD-MPC2 vs PPO comparison.
 
@@ -411,7 +539,7 @@ A **test** of a saved agent (any of the `eval_*.py` scripts) rebuilds the agent 
 
 - `python.sh`: runs Python inside the container that provides the exact package versions (`requirements-lock.txt`), installed once by `setup_env.sh`.
 - `seed_job.sh`: trains and tests one seed per array task, optionally in pieces (`SKIP_TESTS`) and with the extra tests without planning (`DEPLOYMENT_TESTS`).
-- `eval_job.sh`, `disturb_job.sh`, `snapshot_job.sh`, `model_error_job.sh`, `variants_job.sh`, `horizon_job.sh`: run the corresponding test on a list of runs, one per array task.
+- `eval_job.sh`, `disturb_job.sh`, `snapshot_job.sh`, `model_error_job.sh`, `variants_job.sh`, `horizon_job.sh`, `smoothing_job.sh`: run the corresponding test on a list of runs, one per array task.
 - `profile_job.sh`, `parallel_job.sh`, `test_job.sh`: speed measurements.
 - `ppo_job.sh`: the historical PPO runs.
 - `pull_results.sh`: copies all results from Narval to the home PC, without the large checkpoints.
@@ -435,7 +563,7 @@ Every training run has its own folder (`outputs/batch2/<experiment>/seed_XX/` at
 | `snapshots/` | the agent every 100k steps (Narval only) |
 | `tensorboard/` | training statistics (losses) |
 | `evaluation*/` | final tests: `summary.csv` (one row per flight), `trajectories.csv` (every step) |
-| `disturbances*/`, `snapshot_evaluation*/`, `model_error/`, `planner_variants/`, `horizon_test/` | the follow-up tests |
+| `disturbances*/`, `snapshot_evaluation*/`, `model_error/`, `planner_variants/`, `horizon_test/`, `smoothing_test/` | the follow-up tests |
 | `gpu_usage.csv`, `*.log` | GPU samples and the training log |
 
 Each experiment folder also has `batch_info.json`, which records the settings and the code version. The old Narval results were backed up to `/project/def-cbelling-ab/mounirz/tdmpc2_scratch_backup_2026-11-01/` before the scratch purge.
@@ -464,7 +592,8 @@ sbatch --array=0-10 --time=10:00:00 --export=ALL,CONFIG=config_batch2_random_sta
 BATCH=batch2/random_start_1M,STEPS=1000000,DEPLOYMENT_TESTS=1 code/src/tdmpc2_training/cluster/seed_job.sh
 bash code/src/tdmpc2_training/cluster/pull_results.sh
 
-# analysis
+# analysis: everything at once, or one analysis at a time
+bash code/src/tdmpc2_training/analyze_all.sh
 .venv/bin/python code/src/tdmpc2_training/analyze_batch2.py outputs/batch2/random_start_1M \
     --compare outputs/batch2/random_start_small_1M outputs/batch2/fixed_start_1M outputs/batch1_standard_1M
 

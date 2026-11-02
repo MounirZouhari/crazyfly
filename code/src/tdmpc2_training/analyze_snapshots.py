@@ -80,6 +80,7 @@ def main():
                   "train_area median late error of full flights, >= 500k (cm) | highest crash share, >= 500k |",
                   "|---|---:|---|---|---:|---:|---|---:|"]
         gains = defaultdict(list)
+        drift = defaultdict(list)
         for name, table in seeds.items():
             steps = sorted(table)
             best = max(steps, key=lambda s: (table[s].get("validation", 0.0), s))
@@ -89,6 +90,11 @@ def main():
             fmt = lambda s: " / ".join(f"{table[s].get(g, float('nan')):.0%}" for g in GROUPS[1:])
             late_errors = [100 * errors[name][s][0] for s in steps if s >= 500_000 and s in errors[name]]
             late_crashes = [errors[name][s][1] for s in steps if s >= 500_000 and s in errors[name]]
+            if len(late) > 1:
+                drift["success SD"].append(np.std(late, ddof=1))
+            if len(late_errors) > 1:
+                drift["late error SD (cm)"].append(np.nanstd(late_errors, ddof=1))
+                drift["late error mean (cm)"].append(np.nanmean(late_errors))
             lines.append(f"| {name} | {best // 1000}k | {fmt(best)} | {fmt(final)} | "
                          f"{np.std(late, ddof=1) if len(late) > 1 else float('nan'):.3f} | "
                          f"{np.sqrt(p * (1 - p) / 50) if np.isfinite(p) else float('nan'):.3f} | "
@@ -100,6 +106,10 @@ def main():
         lines.append("Best minus final test success, mean ± SE across seeds: " + ", ".join(
             f"{g} {np.nanmean(v):+.0%} ± {np.nanstd(v, ddof=1) / np.sqrt(len(v)) if len(v) > 1 else 0:.0%}"
             for g, v in gains.items()))
+        lines.append("")
+        lines.append("Drift from 500k on (train_area, per seed, then mean ± SE across seeds): " + ", ".join(
+            f"{k} {np.mean(v):.2f} ± {np.std(v, ddof=1) / np.sqrt(len(v)) if len(v) > 1 else 0:.2f}"
+            for k, v in drift.items()))
         lines.append("")
         for ax, group in zip(row_axes, GROUPS):
             for name, table in seeds.items():

@@ -1,0 +1,23 @@
+# Batch 2 follow-up (pilot): the small TD-MPC2 trained exactly like experiment
+# D (config_batch2_random_start_small), but with an extra reward term
+# concentrated within about 5 cm of the target (crazyflie_hover_sharp.py).
+# Question: is the drift of the small agents' hover precision between
+# checkpoints (3-15 cm) caused by a reward that barely distinguishes 5 cm from
+# 15 cm? Compare the snapshot-to-snapshot drift and the final precision with D.
+#
+#   train_hover.py --config-name=config_batch2_sharp_small seed=0
+defaults:
+  - config_hover
+  - _self_
+
+max_steps: 1_000_000
+buffer_size: 1_000_000
+save_interval_steps: 50_000
+snapshot_interval_steps: 100_000
+eval_interval_steps: 25_000
+curve_set: batch2
+
+env:
+  env_id: CrazyflieHoverSharp-v0
+  random_starts: True
+  metric_target: True

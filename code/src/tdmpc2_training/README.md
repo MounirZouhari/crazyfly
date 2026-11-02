@@ -137,3 +137,27 @@ without planning and with a small planner:
 
 Test groups and metrics are described in `hover_eval.py` and `EXPERIMENTS.md`.
 Existing results are never overwritten unless `--overwrite` is given.
+
+Follow-up tests of a finished run (nothing is trained; each writes a folder
+inside the run):
+
+| Script | Folder | What it flies |
+| --- | --- | --- |
+| `eval_disturbances.py` | `disturbances[_policy_only]/` | wind, gusts, extra mass, weaker motors, command delay |
+| `eval_snapshots.py` | `snapshot_evaluation[_policy_only]/` | every 100k-step snapshot, validation and test starts |
+| `model_error.py` | `model_error/` | records flights and measures the world model's prediction error along them |
+| `eval_planner_variants.py` | `planner_variants/` | policy only, planner, narrower search, half the candidates from the policy |
+| `eval_horizon.py` | `horizon_test/` | planning horizons 1, 3, 5 and 10 |
+| `eval_smoothing.py` | `smoothing_test/` | averaged-plan action, filtered commands, slower motors |
+
+After copying the results home (`cluster/pull_results.sh`), every analysis
+runs with one command; each writes a `summary.md` and its figures:
+
+```bash
+bash code/src/tdmpc2_training/analyze_all.sh
+```
+
+Two further training setups exist for follow-up questions:
+`config_batch2_randomized_small` (randomised mass, motors and wind,
+`crazyflie_hover_dr.py`) and `config_batch2_sharp_small` (an extra reward
+term within about 5 cm of the target, `crazyflie_hover_sharp.py`).

@@ -18,6 +18,7 @@ the blockers below fixed first.
 | 7 | State estimation (Flow deck) | Risk | lab Final Report: unreliable on dark netted mats |
 | 8 | Take-off and landing | Not covered by the agent | agents start in the air, at rest |
 | 9 | Failsafes | Must keep the lab's, plus a watchdog | `run_hardware.py` safety latch |
+| 10 | Smoothness of the planner's commands | **Risk** (measured) | see 10 below |
 
 ## 1. Action semantics (blocker)
 
@@ -118,6 +119,26 @@ and the lab environment already supports it.
 - **Failsafes:** keep the lab's latched safety trigger (2 m bound, final
   descent) and the firmware's own commander timeout. Add a check that falls
   back to a hover command when a decision is late.
+
+## 10. Smoothness of the planner's commands (risk)
+
+`analyze_flight_quality.py` measures, from the step-by-step test records, how
+much each command changes between consecutive decisions in steady hover (the
+last 5 s of full flights). Small random-start agents (8 seeds, Nov 2):
+- with planning, the thrust changes by about 29% of its range per step and
+  the body moments by about 33%, and about half of all steps have a command
+  at its limit;
+- the policy network alone: about 8% for both, and 2% of steps at a limit.
+
+The tests use the deterministic planner (best candidate's first action, no
+added noise), so this is how TD-MPC2's planner acts: it executes one sampled
+candidate per step, and many candidates are clipped at the limits. Real
+motors cannot follow a command that jumps by a third of its range every
+20 ms; their response would filter the commands, which changes the closed
+loop the agent was trained in. `eval_smoothing.py` tests whether a smoother
+way of acting (the planner's averaged plan, or a 40 ms command filter) keeps
+the precision, and whether the agents tolerate a first-order motor lag of 30
+or 60 ms (assumed values; the real motor response must be identified).
 
 ## Proposed supervised test sequence (not started)
 

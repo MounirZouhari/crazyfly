@@ -7,13 +7,13 @@
 #
 # Batch 2 batches go to outputs/batch2/, the extra test results of the Batch 1
 # runs (evaluation_batch2_tests*, disturbances*, model_error, planner_variants,
-# horizon_test) into the existing outputs/batch1_* folders.
+# horizon_test, smoothing_test) into the existing outputs/batch1_* folders.
 set -e
-BATCHES="random_start_1M fixed_start_1M random_start_small_1M randomized_small_1M"
+BATCHES="random_start_1M fixed_start_1M random_start_small_1M randomized_small_1M sharp_small_1M"
 FILES=(--include='*/' --include='learning_curve.csv' --include='batch_info.json' --include='.hydra/***'
        --include='evaluation*/***' --include='disturbances*/***' --include='snapshot_evaluation*/***'
        --include='model_error*/***' --include='planner_variants/***' --include='horizon_test/***'
-       --include='gpu_usage.csv' --include='tensorboard/***' --include='*.log' --exclude='*')
+       --include='smoothing_test/***' --include='gpu_usage.csv' --include='tensorboard/***' --include='*.log' --exclude='*')
 mkdir -p outputs/batch2
 for batch in $BATCHES; do
   rsync -am "${FILES[@]}" narval:/scratch/mounirz/tdmpc2/batch2/$batch/ outputs/batch2/$batch/
@@ -23,7 +23,8 @@ rsync -am narval:/scratch/mounirz/tdmpc2/batch2/parallel_projection/ outputs/bat
 rsync -am narval:/scratch/mounirz/tdmpc2/batch2/job_ids.txt outputs/batch2/
 for batch in batch1_standard_1M batch1_standard batch1_small_narval; do
   rsync -am --include='*/' --include='evaluation_batch2_tests*/***' --include='disturbances*/***' \
-    --include='model_error*/***' --include='planner_variants/***' --include='horizon_test/***' --exclude='*' \
+    --include='model_error*/***' --include='planner_variants/***' --include='horizon_test/***' \
+    --include='smoothing_test/***' --exclude='*' \
     narval:/scratch/mounirz/tdmpc2/$batch/ outputs/$batch/
 done
 echo "Pulled. Seeds with final tests:"
