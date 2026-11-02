@@ -123,3 +123,12 @@ the full experiment descriptions are in `../EXPERIMENTS.md`.
 - **H1 (model exploitation) supported, correlationally:** the planner drives the drone into states where its world model is wrong, and crashes follow rising model error.
   - Alternative explanation: unusual states near a crash are hard to predict whatever caused them.
   - Causal test started: `eval_planner_variants.py` keeps the trained weights but plans more conservatively (sampling spread 0.5 instead of 2, or half the candidates from the policy network). If exploitation is the cause, these should crash less than the default planner.
+
+**00:05: planner variants, validation run.** Small 50k agent, seed 4, same starts and noise for every variant. Success / crash share in training area, held-out block, outside:
+- policy only: 0/0%, 0/0%, 0/7%
+- planner as trained: 70/6%, 50/23%, 10/67%
+- narrower sampling (max_plan_std 0.5): 64/8%, 63/20%, 10/67%, no change
+- half the candidates from the policy network: 76/0%, 90/0%, 13/43%
+
+So anchoring the planner to the policy network's proposals removes most of its extra crashes and keeps (even raises) its precision; only narrowing the search does not. One agent only. Submitted for all 25 Batch 1 runs (job 7663755) and chained after R1, C1 and small (7663756-7663773).
+- If it holds across seeds, it is a test-time, no-retraining improvement, and causal evidence for exploitation: the crashes come from candidates far from the policy prior.
