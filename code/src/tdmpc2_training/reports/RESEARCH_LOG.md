@@ -162,3 +162,26 @@ So anchoring the planner to the policy network's proposals removes most of its e
   - a 1,500-step training run works.
 - **Launched:** 3 seeds x 1M in two 3 h pieces (7664888 then 7664889), with disturbance tests (7664892) and planner variants (7664893) chained.
 - **Comparison:** the same tests on the nominal-trained small agents. In-range disturbances: mass, motors, wind up to 3 m/s. Beyond the range: wind 4 m/s, gust 6 m/s, delays.
+
+**02:07: first fully trained Batch 2 agents.** Small model, random starts, seeds 0-2, 1M steps (job 7661496); final tests of 128 flights each (`outputs/batch2/random_start_small_1M/analysis/`). Success / crash share:
+
+| Decision rule | training area | held-out block | outside | Batch 1 starts |
+| --- | --- | --- | --- | --- |
+| with planning | 95 ± 4% / 0% | 97 ± 2% / 0% | 68 ± 10% / 2% | 94 ± 6% / 0% |
+| policy network only | 1% / 0% | 0% / 0% | 8% / 0% | 6% / 0% |
+| 64x2 planner | 94% / 0% | 88% / 0% | 69% / 2% | 94% / 0% |
+
+- Median late error from training-area starts: 5.0-6.9 cm per seed.
+- With planning vs the Batch 1 1M single-start agents: +75 to +94 points of success (95% bootstrap intervals all far above 0).
+- **Planning vs policy only, paired:** +94 [+86, +100] (training area), +97 [+93, +100] (held-out), +60 [+27, +83] (outside). For the single-start 1M agents it was -26 [-46, -8].
+- **Interpretation, for when and why the model helps (Q7):**
+  - Trained on data covering the test situations, the policy network alone is safe but imprecise (no crashes, about 1% success), and planning with the world model adds the precision.
+  - Trained on one start, planning off that data exploits model errors and crashes.
+  - So the world model helps where its training data covers the situation, and hurts beyond it.
+- 3 seeds; seeds 3-10 due about 03:30.
+- **Where the precision comes from** (median late error of full flights from training-area and held-out starts, per seed):
+  - planner: 5.1-7.4 cm (horizontal 4.1-7.4 cm, vertical 0.9-2.9 cm);
+  - policy only: 15-41 cm (horizontal 13-16 cm, vertical 8-38 cm);
+  - 64x2 planner: 5.1-8.7 cm.
+- The policy network alone holds the wrong height. Planning corrects it almost entirely, mostly the thrust (hovering needs 76% of maximum thrust, so small biases matter).
+- Hypothesis: the policy network, trained to maximise the value with an entropy bonus, has a biased mean thrust, and short-horizon planning against the model's predicted rewards removes the bias.
