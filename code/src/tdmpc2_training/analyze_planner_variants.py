@@ -66,9 +66,9 @@ def main():
                 c, c_se = mean_se([p[1] for p in per_seed])
                 cell = f"{s:.0%} ± {s_se:.0%} / {c:.0%} ± {c_se:.0%}"
                 if variant != "planner":
-                    ds, _ = mean_se([p[0] - b[0] for p, b in zip(per_seed, base)])
-                    dc, _ = mean_se([p[1] - b[1] for p, b in zip(per_seed, base)])
-                    cell += f" ({ds:+.0%} / {dc:+.0%})"
+                    ds, ds_se = mean_se([p[0] - b[0] for p, b in zip(per_seed, base)])
+                    dc, dc_se = mean_se([p[1] - b[1] for p, b in zip(per_seed, base)])
+                    cell += f" ({ds:+.0%} ± {ds_se:.0%} / {dc:+.0%} ± {dc_se:.0%})"
                 cells.append(cell)
             lines.append(f"| {batch.name} | {len(seeds)} | {variant} | " + " | ".join(cells) + " |")
     (args.out / "summary.md").write_text("\n".join(lines) + "\n")

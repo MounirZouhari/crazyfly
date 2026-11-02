@@ -105,11 +105,19 @@ pending.**
     flights.
 - This matches **model exploitation** (cf. Janner et al. 2019): optimising
   against a model off its data picks actions the model wrongly rates highly.
-- Causal test on one agent: giving the planner half its candidates from the
-  policy network removed the extra crashes and kept the planner's precision
-  (held-out block: crashes 23% to 0%, successes 50% to 90%). Merely narrowing
-  the search changed nothing.
-- **Pending:** the same test on all 25 agents and on every Batch 2 agent.
+- Causal test on all 25 Batch 1 agents (same weights, starts and noise;
+  only the planner settings change at test time):
+  - Giving the planner half its candidates from the policy network
+    reduced crashes on training-area starts by 19 ± 1 points and raised
+    success by 15 ± 2 points for the 1M agents (all 3 seeds improved alike).
+    For the small 50k agents (11 seeds) crashes fell by 3-7 points.
+  - A narrower search helped the 1M agents less (-13 ± 1 crash points).
+  - The policy network alone was still far more robust for the 1M agents
+    (-49 ± 12 crash points vs the default planner).
+  - So exploitation of model errors is one mechanism, not the only one; the
+    value function's errors off the training data are the next suspect.
+- **Pending:** the same tests on every Batch 2 agent (trained on random
+  starts).
 
 ## Q8. Does planning improve robustness to disturbances compared with the policy alone?
 

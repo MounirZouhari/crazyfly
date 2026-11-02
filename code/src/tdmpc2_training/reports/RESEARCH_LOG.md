@@ -132,3 +132,15 @@ the full experiment descriptions are in `../EXPERIMENTS.md`.
 
 So anchoring the planner to the policy network's proposals removes most of its extra crashes and keeps (even raises) its precision; only narrowing the search does not. One agent only. Submitted for all 25 Batch 1 runs (job 7663755) and chained after R1, C1 and small (7663756-7663773).
 - If it holds across seeds, it is a test-time, no-retraining improvement, and causal evidence for exploitation: the crashes come from candidates far from the policy prior.
+
+**00:35: planner variants on all 25 Batch 1 runs** (job 7663755, `outputs/batch2/planner_variants_summary_batch1/`). Paired change vs the planner as trained, mean ± SE across seeds:
+- **1M agents (3 seeds), training-area starts:**
+  - half the candidates from the policy network: success +15 ± 2 points, crashes -19 ± 1;
+  - narrower sampling: +9 ± 2 / -13 ± 1;
+  - policy network only: +21 ± 8 / -49 ± 12.
+  - In the held-out block and outside, all changes have the same direction but are smaller and noisier.
+- **Small 50k agents (11 seeds):** half-policy candidates reduce crashes by 3-7 points (SE 2-4); success changes are within noise.
+- **Published-size 50k agents:** crash 95-100% whatever the planner setting.
+- **Revised conclusion:** more conservative planning reliably removes part of the planner's extra crashes, consistent in all 3 1M seeds. So exploitation of model errors is one mechanism. It is not the whole story: for single-start 1M agents the policy network alone remains far more robust (63% vs 15% crashes).
+  - The seed-4 result (23% to 0% crashes) was an extreme case.
+  - Remaining candidates: the value function is wrong off the training data (MPPI ranks plans by model reward plus value); 256 free candidates still allow exploitation.
