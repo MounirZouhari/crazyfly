@@ -1,0 +1,22 @@
+# Batch 2, experiment D (pilot): the small TD-MPC2 of Batch 1 (config_hover:
+# latent and hidden width 128, 128 plans x 3 rounds, batch 64) trained exactly
+# like R1 (config_batch2_random_start): a new random start every training
+# flight, target offset in metres, 1M steps, the same test starts.
+# Question: does the smaller, faster model (1.4 ms per decision on a GPU slice,
+# 11 ms on a CPU) learn and generalise as well as the published size?
+#
+#   train_hover.py --config-name=config_batch2_random_start_small seed=0
+defaults:
+  - config_hover
+  - _self_
+
+max_steps: 1_000_000
+buffer_size: 1_000_000
+save_interval_steps: 50_000
+snapshot_interval_steps: 100_000
+eval_interval_steps: 25_000
+curve_set: batch2
+
+env:
+  random_starts: True
+  metric_target: True
