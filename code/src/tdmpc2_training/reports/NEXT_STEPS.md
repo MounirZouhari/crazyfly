@@ -4,14 +4,16 @@ Ordered by expected research value per unit of effort. Each step says which
 result would change the plan. The reasoning behind each is in `GUIDE.md`,
 Chapter 9.
 
-## 0. Finish Batch 2 (today, no new work)
+## 0. Check why longer training hurt outside the area (about 1 h, no training)
 
-- Add the R1 continuation to 2M steps (seeds 0-2, `random_start_2M`) when it
-  lands: pull with `cluster/pull_results.sh`, run `analyze_all.sh`, fill
-  Section 5.18 of the guide.
-- **Decision:** if R1 at 2M catches up with the small model (planning at 70%
-  or more from the training area), the published model is just slower and
-  longer runs are worth their cost; if not, carry the small model forward.
+R1 at 2M (seeds 0-2) improved inside the area but crashed far more from
+outside starts (22% -> 58%). Hypothesis: the 1M-transition replay buffer
+starts discarding the early, wide-ranging flights after 1M steps. Compare the
+distances to the target stored in the 1M and 2M buffers (in the checkpoints
+on Narval), and fly the 1.1M-2M snapshots.
+- **Decision:** if confirmed, use a buffer of at least the run length for
+  long runs; either way, carry the small model forward (it matches R1 at 2M
+  inside the area and is far safer outside, at a quarter of the training time).
 
 ## 1. Make checkpoint selection on validation starts the standard (no training)
 

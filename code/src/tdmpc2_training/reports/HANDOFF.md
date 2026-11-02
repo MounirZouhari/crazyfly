@@ -1,6 +1,6 @@
 # Handoff: Batch 2 overnight run (Nov 1-2, 2026)
 
-Status as of 09:30 on Nov 2. Everything is on the branch `tdmpc2-hover` of the
+Status as of 12:30 on Nov 2 (all experiments finished). Everything is on the branch `tdmpc2-hover` of the
 local repository (WSL: `~/Projects/multi-agentCrazyflieLift`); nothing was
 pushed (origin returns 403) and nothing was merged into `main`.
 
@@ -70,14 +70,14 @@ guide; `git log 8edab5b^..HEAD` shows every commit.
 ## 5. Experiments finished
 
 All jobs in `GUIDE.md` Appendix B: 294 Slurm tasks completed, 0 failed,
-timed out or cancelled. Main job numbers: R1 7659438, C1 7659439, D 7661493/
+timed out or cancelled (300 by noon, with the 2M run). Main job numbers: R1 7659438, C1 7659439, D 7661493/
 7661496 and 7662436/7662437, H2 7664888/7664889, sharp pilot 7668941/7668942.
 
 ## 6. Jobs running or queued
 
-- R1 continued to 2M steps, seeds 0-2: 7669543 (piece 2) running, 7669544
-  (piece 3, with final tests) queued after it. Expected end early afternoon
-  Nov 2. Output: `$SCRATCH/tdmpc2/batch2/random_start_2M`.
+- None. The last run, R1 continued to 2M steps (seeds 0-2; 7669542 to
+  7669544), finished at about 12:00 on Nov 2, every task exit 0. Results in
+  `outputs/batch2/random_start_2M/` and in the guide, Section 5.18.
 
 ## 7. Exact paths
 
@@ -131,7 +131,8 @@ answered; Q2 and Q9 are answered at 1M steps. See `RESULTS_SUMMARY.md`.
 
 ## 11. Questions still open
 
-- Q9/Q2: does the published model catch up with more training (2M running)?
+- Why does R1 at 2M crash more from outside starts (22% -> 58%)? Hypothesis:
+  the replay buffer discards the early flights after 1M steps (to check).
 - What causes the precision drift (planner sampling or continual updates)?
 - Q10: everything that needs hardware (state estimation, radio delay, motor
   response, firmware-compatible commands).
@@ -147,8 +148,8 @@ answered; Q2 and Q9 are answered at 1M steps. See `RESULTS_SUMMARY.md`.
 
 ## 13. What next
 
-`NEXT_STEPS.md` and Chapter 9 of the guide. In short: add the 2M results,
-adopt validation-based checkpoint selection, test the source of the drift,
+`NEXT_STEPS.md` and Chapter 9 of the guide. In short: check the replay-buffer
+explanation of the 2M result, adopt validation-based checkpoint selection, test the source of the drift,
 then firmware-compatible commands before any hardware step.
 
 ## 14. What needs Mounir
@@ -157,8 +158,6 @@ then firmware-compatible commands before any hardware step.
 - Decide with Prof. Bellinger: hardware path now or more simulation; which
   controller to carry forward; whether a fair PPO comparison is needed.
 - Pushing the branch (origin returns 403: needs his GitHub access or a fork).
-- After the 2M run ends: ask Claude to pull and add it, or run
-  `cluster/pull_results.sh` and `analyze_all.sh`.
 
 ## 15. Safety and reproducibility concerns
 
@@ -171,5 +170,5 @@ then firmware-compatible commands before any hardware step.
 - The 10 cm success threshold matters; success for every threshold is
   reported alongside.
 - Narval scratch is purged after 60 days without access: checkpoints are
-  backed up to `/project`; the 2M run must be backed up after it ends.
+  backed up to `/project` (all of Batch 2, including the 2M run, verified file by file).
 - The historical PPO results were not changed.

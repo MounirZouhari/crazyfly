@@ -305,3 +305,10 @@ So anchoring the planner to the policy network's proposals removes most of its e
 - **Reading:** the extra reward is learned (the value now sees the target), and the large excursions of precision disappeared in these 3 seeds, but the typical precision and the swings of success around the 10 cm threshold are unchanged. So the flat value was not the cause of the drift. Not a cure; a pilot that narrows the search.
 
 **09:30: documents finished.** `GUIDE.pdf` complete with every final result (66 pages; Section 5.18 waits for the 2M run), `BATCH2_EXPLAINED.pdf` (a 14-page plain-language version: the experiment names, what each one is for, the results by question, where every file is), `RESULTS_SUMMARY.md`, `SUPERVISOR_UPDATE.md`, `NEXT_STEPS.md`, `HANDOFF.md`, registry statuses. Batch 2 copied to `/project` (scratch purge). Still running: R1 to 2M (7669543, then 7669544).
+
+**12:00: R1 continued to 2M steps, final (seeds 0-2; 7669542-7669544 all exit 0; backed up to /project, 901 files, identical).** Paired, same seeds at 1M -> 2M, success / crashes:
+- planning: training area 66/0 -> 72/3%, held-out 65/2 -> 75/7%, outside 33/22 -> 24/58%; typical final error per seed 12.3, 8.8, 7.7 -> 7.2, 10.3, 3.1 cm;
+- 64x2 planner: 51/0 -> 70/0%, 33/0 -> 70/0%, 39/6 -> 57/22%;
+- policy network only: 36/0 -> 29/0%, 53/0 -> 30/0%, 20/3 -> 18/34%.
+- **Reading:** the second million adds a few points and precision inside the area, much less than the first million, and makes the agents crash far more from outside starts. Hypothesis: the replay buffer holds 1M transitions, so from 1M on it discards the early, wide-ranging flights; the agent then trains only on competent flights inside the area and specialises. Both the planner and the policy network crash more outside, which points at the data. To check: distance distributions in the 1M and 2M buffers. At 2M the published planner is level with the small model at 1M inside the area and far less safe outside, after about 14 h of training against 4 h.
+- 300 Slurm tasks completed for Batch 2 in total, none failed. Guide Section 5.18, the summaries and both PDFs updated.

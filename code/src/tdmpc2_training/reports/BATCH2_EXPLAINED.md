@@ -22,7 +22,7 @@
 
 **Two surprises.**
 
-- The **small** version of TD-MPC2 learned better than the big (published) one in 1M steps. The big one is still improving at 1M, so three of its runs are being continued to 2M (finishing this afternoon).
+- The **small** version of TD-MPC2 learned better than the big (published) one in 1M steps. The big one was still improving at 1M, so three of its runs were continued to 2M. At 2M it is about as good as the small model inside the training area, but it crashes much more from spots outside it (see Section 4.9).
 - For the big model, the **policy network alone** (no planning) flies better than with planning, and at its best checkpoint it is as good as the best small agents, while needing only 0.3 ms per decision.
 
 # 2. The words you need
@@ -75,7 +75,7 @@ Every experiment has a short name. This table is the key to everything else:
 | **D** | small | random spots | 11 | 1M | the same as R1 with the small model |
 | **H2** | small | random spots, plus random weight, motor strength and wind | 3 | 1M | pilot: does training with varied physics make it more robust? |
 | **SH** | small | random spots, with an extra reward near the target | 3 | 1M | pilot: does a sharper reward make it more precise? |
-| **R1 to 2M** | big | random spots | 3 | 2M | is the big model just slower? **still running** |
+| **R1 to 2M** | big | random spots | 3 | 2M | is the big model just slower? |
 
 **Why C1 exists.** Besides the random spots, R1 has one small technical difference from Batch 1 (the target position is given to the agent in metres). If R1 is better than Batch 1, is that because of the random spots, or because of this small difference? C1 has the small difference but trains from the single Batch 1 spot. If C1 looks like Batch 1, the improvement in R1 comes from the random spots. (It does: C1 is within 2-6 points of Batch 1.)
 
@@ -88,7 +88,7 @@ Every experiment has a short name. This table is the key to everything else:
 | D | `random_start_small_1M` |
 | H2 | `randomized_small_1M` |
 | SH | `sharp_small_1M` |
-| R1 to 2M | `random_start_2M` (on Narval until it finishes) |
+| R1 to 2M | `random_start_2M` |
 
 # 4. The results, one question at a time
 
@@ -124,7 +124,7 @@ Small model, with planning:
 | R1 (big) | 46% / 0% | 39% / 2% | 20% / 26% |
 | D (small) | 78% / 0% | 83% / 0% | 59% / 3% |
 
-The small model is 32-44 points better. But the big model's results were **still going up** at the end of training (its test success rose from about 26% at 600k steps to 42% at 1M), so it may simply need more steps. That is why three R1 runs are being continued to 2M steps.
+The small model is 32-44 points better. But the big model's results were **still going up** at the end of training (its test success rose from about 26% at 600k steps to 42% at 1M), so it may simply need more steps. That is why three R1 runs were continued to 2M steps; Section 4.9 gives the answer.
 
 ## 4.3 Does planning help? It depends on the model.
 
@@ -181,12 +181,28 @@ With planning, the commands jump a lot from one step to the next (thrust changes
 
 A real drone needs a decision every 20 ms. The big model can only plan in time with a GPU; the small model can on a laptop; the policy network alone can anywhere.
 
+## 4.9 Training the big model twice as long (R1 to 2M)
+
+Three R1 runs (seeds 0, 1, 2) were continued from 1M to 2M steps. Same three seeds, before and after:
+
+| Big model, seeds 0-2 | Training area | Held-out block | Outside |
+|---|---:|---:|---:|
+| with planning, 1M | 66% / 0% | 65% / 2% | 33% / 22% |
+| with planning, 2M | **72% / 3%** | **75% / 7%** | 24% / **58%** |
+| small model at 1M (for comparison) | 78% / 0% | 83% / 0% | 59% / 3% |
+
+**Better where it trains, worse where it does not.** Inside the area it gained 6-10 points and became more precise (one seed now hovers 3 cm from the target, the best of the project). From spots outside the area, crashes went from 22% to 58%.
+
+**Why more training can make it worse outside.** TD-MPC2 learns from a memory (the **replay buffer**) of its last 1 million steps; older steps are deleted to make room. During the first million steps nothing is deleted, so the memory still holds the clumsy early flights, where the drone drifted far away and had to recover. During the second million, those early flights are pushed out and replaced by flights of a good drone going neatly from the area to the target. The agent then trains only on "nice" flights and forgets how the drone behaves far away, which is exactly what the outside spots require. It became a specialist. (This explanation is a hypothesis that fits the results; it can be checked by looking at what is stored in the memory at 1M and at 2M.)
+
+**What it means for you.** The big model is not broken: inside the area, at 2M, it is one of the best agents. But it is not worth it for this task: the small model at 1M is about as good inside the area, far safer outside, and took about 4 hours to train instead of about 14. If longer training is ever needed, use a larger memory, a larger training area, or choose checkpoints with validation flights that include far spots. With 3 seeds this is a strong hint, not a proven result.
+
 # 5. What it means, and what to tell Professor Bellinger
 
 1. **His suggestion worked.** Training from random spots turns a controller that memorised one route (and crashed elsewhere) into one that flies from anywhere in the area, including a corner it never trained from. C1 proves it is the random spots that matter.
 2. **Longer training fixed safety, not all of the precision.** At 1M steps no good agent crashes inside the area, but precision still drifts by a few centimetres between checkpoints. Keeping the best checkpoint (chosen on separate validation flights) solves this in practice: 97% success for the small model.
 3. **When planning helps.** Planning helps when the world model is accurate where it is used (small model, inside the area: +69 points). It hurts when the search can find the model's mistakes (single-spot agents away from their spot; the big model outside the area).
-4. **The small model is the better choice for now.** Better results in 1M steps, twice as fast to train, and it can plan on a laptop. Whether the big model catches up with more training is being tested (R1 to 2M).
+4. **The small model is the better choice.** Better results in 1M steps, twice as fast to train, and it can plan on a laptop. Trained to 2M steps, the big model draws level with it inside the area but crashes far more from outside it, after three to four times the training time.
 5. **For a real drone:** the commands must be smoothed (a 40 ms filter or the averaged plan), and the agents must be retrained with commands the Crazyflie firmware accepts; nothing was flown.
 6. **Two negative pilot results** (varied physics, sharper reward) are reported as they are; both say where to look next.
 
@@ -233,8 +249,6 @@ The summaries that compare experiments are in `outputs/batch2/*_summary/` (for e
 | `RESEARCH_LOG.md` | what was done when, in order, with every number |
 | `DEPLOYMENT_READINESS.md` | what stands between these agents and a real Crazyflie |
 
-# 7. What is still running and what is left
+# 7. Status
 
-- **Running on Narval:** R1 to 2M (3 seeds), done around 12:30-13:30. It answers whether the big model just needs more training.
-- **Being written:** the full `GUIDE.pdf` with all the final results (about 11:00-11:30), a one-page update for Professor Bellinger, and the handoff notes.
-- **Then:** back up all results to Narval's permanent storage (`/project`, because `/scratch` is cleaned automatically), and add the 2M result when it lands.
+Everything is finished: 300 jobs on Narval, none failed. All results are backed up on Narval's permanent storage (`/project/def-cbelling-ab/mounirz/tdmpc2_scratch_backup_2026-11-01/batch2/`, because `/scratch` is cleaned automatically). The full guide (`GUIDE.pdf`), the one-page update for Professor Bellinger (`SUPERVISOR_UPDATE.md`) and the handoff notes (`HANDOFF.md`) are complete.

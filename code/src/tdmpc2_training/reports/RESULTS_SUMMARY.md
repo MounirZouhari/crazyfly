@@ -3,7 +3,7 @@
 Each answer is marked:
 - **Established:** several seeds, the right controls, repeated measurement.
 - **Preliminary:** few seeds or a single setting; the direction is clear, the size uncertain.
-- **Pending:** an experiment is still running (see `HANDOFF.md`).
+- **Pending:** nothing; every experiment has finished.
 
 Success = a full 10 s flight whose late error (mean distance to the target
 over the last 2 s) is below 10 cm. Numbers are mean ± standard error across
@@ -33,8 +33,11 @@ correlations of changes between -0.14 and +0.10).
   97% test success from the training area at the validation-chosen snapshot
   vs 76% at the final one (11 seeds; +21 ± 11 points).
 - The published model (R1) had not finished learning at 1M: its snapshots
-  rise almost steadily (26% at 600k, 42% at 1M). **Pending:** seeds 0-2
-  continued to 2M.
+  rise almost steadily (26% at 600k, 42% at 1M). Seeds 0-2 continued to 2M
+  (preliminary, 3 seeds): with planning 66 -> 72% (training area), 65 -> 75%
+  (held-out), and more precise, but crashes from outside starts 22 -> 58%.
+  Likely cause: the 1M-transition replay buffer starts discarding the early,
+  wide-ranging flights after 1M steps, so the agent specialises.
 - **Reward hypothesis rejected in its simple form (pilot, 3 seeds):** with a
   reward ten times sharper within 5 cm of the target, the value network does
   learn to prefer the target (it drops by 0.03-0.05 at 10 cm, against about
@@ -125,7 +128,7 @@ training area / held-out block (never trained on) / outside:
 
 ## Q9. Model size: speed, deployability, accuracy
 
-**Established at 1M steps; the 2M continuation is pending.**
+**Established at 1M steps; preliminary at 2M (3 seeds).**
 - Per decision, GPU slice / 2 CPU cores: published planner 6.1 / 516 ms;
   small planner 1.4 / 11.4 ms; small 64x2 planner 1.5 / 4.4 ms; policy only
   0.2-0.4 ms. Control period 20 ms.
@@ -136,6 +139,9 @@ training area / held-out block (never trained on) / outside:
 - Best deployable options: small model with planning (CPU, 11 ms, or 64x2 at
   4.4 ms with the same success), or the published policy network alone
   (0.3 ms, most robust to disturbances, needs checkpoint selection).
+- At 2M steps (seeds 0-2) the published planner draws level with the small
+  one inside the area (72-75% vs 78-83%) but crashes in 58% of flights from
+  outside starts (small at 1M: 3%), after about 14 h of training vs 4 h.
 
 ## Q10. What prevents safe sim-to-real transfer?
 
